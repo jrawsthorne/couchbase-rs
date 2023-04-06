@@ -261,16 +261,3 @@ impl Default for DBOpenOptions {
         }
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_open() {
-        let db = Db::open(
-            "/home/jrawsthorne/Code/github.com/couchbase/couchstore/data/travel-sample/261.couch.1",
-            DBOpenOptions::default(),
-        );
-    }
-}
