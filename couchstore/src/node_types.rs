@@ -1,6 +1,6 @@
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 
-use crate::DiskVersion;
+use crate::{ContentMetaFlag, DiskVersion, DocInfo};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
@@ -53,23 +53,38 @@ impl RawFileHeaderV13 {
 
 pub type RawKvLength = [u8; 5];
 
-fn decode_kv_length(kv: &RawKvLength, klen: &mut u32, vlen: &mut u32) {
-    // 12, 28 bit
-    let klen_raw = ((kv[0] as u16) << 4) | ((kv[1] as u16) & 0xf0) >> 4;
-    *klen = klen_raw as u32;
+fn decode_kv_length(kv: &RawKvLength) -> (u32, u32) {
+    // kv[0] is the first byte of the key length. Read BE so put as the first 8 bytes
+    // kv[1] contains the last 4 bits of the key length and the first 4 bits of the value length
+    // & 0xF0 to remove the last 4 bits of the second byte
+    let klen_raw = ((kv[0] as u16) << 4) | ((kv[1] as u16) & 0xF0) >> 4;
+    let klen = klen_raw as u32;
 
     let mut vlen_raw: [u8; 4] = [0; 4];
     vlen_raw.copy_from_slice(&kv[1..5]);
 
-    *vlen = u32::from_be_bytes([vlen_raw[0] & 0x0F, vlen_raw[1], vlen_raw[2], vlen_raw[3]]);
+    // & 0x0F to remove the first 4 bits of the second byte
+    let vlen = u32::from_be_bytes([vlen_raw[0] & 0x0F, vlen_raw[1], vlen_raw[2], vlen_raw[3]]);
+
+    (klen, vlen)
+}
+
+pub fn encode_kv_length(key_length: u32, value_length: u32) -> RawKvLength {
+    let mut kv = [0; 5];
+    // key length is 12 bits, so the first byte is the first 8 bits of the key length
+    kv[0] = (key_length >> 4) as u8;
+    // the last 4 bits of the first byte and the first 4 bits of the second byte are the last 8 bits of the key length
+    kv[1] = ((key_length & 0x0F) << 4) as u8 | ((value_length >> 24) & 0x0F) as u8;
+    kv[2] = (value_length >> 16) as u8;
+    kv[3] = (value_length >> 8) as u8;
+    kv[4] = value_length as u8;
+    kv
 }
 
 pub fn read_kv<'a>(buf: &mut Cursor<&'a [u8]>) -> Option<(&'a [u8], &'a [u8])> {
     let mut kv = [0; 5];
-    let mut klen: u32 = 0;
-    let mut vlen: u32 = 0;
     buf.read_exact(&mut kv).unwrap();
-    decode_kv_length(&kv, &mut klen, &mut vlen);
+    let (klen, vlen) = decode_kv_length(&kv);
 
     let key = buf
         .get_ref()
@@ -92,3 +107,34 @@ struct RawNodePointer {
 }
 
 pub fn read_raw_node_pointer() {}
+
+impl DocInfo {
+    pub fn encode_id_index_value(&self, buf: &mut Cursor<&mut [u8]>) {
+        buf.write_u48::<BigEndian>(self.db_seq).unwrap();
+        buf.write_u32::<BigEndian>(self.physical_size).unwrap();
+        buf.write_u48::<BigEndian>(
+            self.bp | {
+                // set the first bit of the first byte to 1 if deleted
+                if self.deleted {
+                    1 << 47
+                } else {
+                    0
+                }
+            },
+        )
+        .unwrap();
+        buf.write_u8(self.content_meta.bits()).unwrap();
+        buf.write_u48::<BigEndian>(self.rev_seq).unwrap();
+        buf.write_all(&self.rev_meta).unwrap();
+    }
+
+    pub fn encode_seq_index_value(&self, buf: &mut Cursor<&mut [u8]>) {
+        let mut sizes = encode_kv_length(self.id.len() as u32, self.physical_size as u32);
+        buf.write_all(&mut sizes).unwrap();
+        buf.write_u48::<BigEndian>(self.bp).unwrap();
+        buf.write_u8(self.content_meta.bits()).unwrap();
+        buf.write_u48::<BigEndian>(self.rev_seq).unwrap();
+        buf.write_all(&self.id).unwrap();
+        buf.write_all(&self.rev_meta).unwrap();
+    }
+}

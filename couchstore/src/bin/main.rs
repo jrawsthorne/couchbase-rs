@@ -5,7 +5,7 @@ fn v_bucket_hash(key: &str, num_vbuckets: u32) -> u16 {
     let mut hasher = crc32fast::Hasher::new();
     hasher.update(key.as_bytes());
     let crc = hasher.finalize();
-    let hash = (((crc) >> 16) & 0x7fff) & (num_vbuckets - 1);
+    let hash = (crc >> 16) & 0x7fff & (num_vbuckets - 1);
     hash as u16
 }
 

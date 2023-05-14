@@ -29,6 +29,7 @@ pub fn pread_bin_internal(
     read_skipping_prefixes(tree_file, &mut pos, &mut info);
 
     let mut cursor = Cursor::new(&info);
+    // something is stored in the highest bit of the first byte
     let mut chunk_len = cursor.read_u32::<BigEndian>().unwrap() & !0x80000000;
     let crc32 = cursor.read_u32::<BigEndian>().unwrap();
 
@@ -37,10 +38,12 @@ pub fn pread_bin_internal(
         chunk_len -= 4; // Header len includes CRC len.
     }
 
+    // TODO: Reuse buffer
     let mut buf = vec![0u8; chunk_len as usize];
 
     read_skipping_prefixes(tree_file, &mut pos, &mut buf);
 
+    // How does crc32c differ from crc32?
     let crc32_calc = crc32c(&buf);
 
     assert_eq!(crc32, crc32_calc);
@@ -53,6 +56,7 @@ pub fn pread_header(
     pos: usize,
     max_header_size: Option<usize>,
 ) -> Vec<u8> {
+    // TODO: make this more idiomatic
     if max_header_size.is_none() {
         panic!("max_header_size is None");
     }

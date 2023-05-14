@@ -4,14 +4,16 @@ use std::{
     path::Path,
 };
 mod btree;
+mod btree_modify;
 mod btree_read;
 mod constants;
 mod file_read;
 mod file_write;
 mod node_types;
+mod save;
 mod utils;
 
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use constants::COUCH_BLOCK_SIZE;
 use file_read::pread_header;
 use node_types::RawFileHeaderV13;
@@ -92,6 +94,89 @@ impl NodePointer {
             reduce_value,
             subtree_size,
         })
+    }
+
+    fn encode(&self, buf: &mut impl io::Write) -> io::Result<()> {
+        buf.write_u48::<BigEndian>(self.pointer)?;
+        buf.write_u48::<BigEndian>(self.subtree_size)?;
+        buf.write_all(&self.reduce_value)?;
+        Ok(())
+    }
+}
+
+pub struct Doc {
+    pub id: Vec<u8>,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DocInfo {
+    /// Document ID (key)
+    pub id: Vec<u8>,
+
+    /// Sequence number in database
+    pub db_seq: u64,
+
+    /// Revision number of document
+    pub rev_seq: u64,
+
+    /// Revision metadata; uninterpreted by CouchStore.
+    /// Needs to be kept small enough to fit in a B-tree index.
+    pub rev_meta: Vec<u8>,
+
+    /// Is this a deleted revision?
+    pub deleted: bool,
+
+    /// Content metadata flags
+    pub content_meta: ContentMetaFlag,
+
+    /// Byte offset of document data in file
+    pub bp: u64,
+
+    /// Physical space occupied by data (*not* its length)
+    pub physical_size: u32,
+}
+
+bitflags! {
+    /// DataType is used to communicate how the client and server should encode and decode a value
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct SaveOptions: u64 {
+         /// Snappy compress document data if the high bit of the
+    /// content_meta field of the DocInfo is set. This is NOT the
+    /// default, and if this is not set the data field of the Doc will
+    /// be written to disk as-is, regardless of the content_meta flags.
+        const COMPRESS_DOC_BODIES = 1;
+
+         /// Store the DocInfo's passed in db_seq as is.
+    ///
+    /// Couchstore will *not* assign it a new sequence number, but store the
+    /// sequence number as given. The update_seq for the DB will be set to
+    /// at least this sequence.
+        const SEQUENCE_AS_IS = 2;
+    }
+}
+
+use bitflags::bitflags;
+use std::convert::TryFrom;
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct ContentMetaFlag: u8 {
+        /// Document contents compressed via Snappy
+        const IS_COMPRESSED = 128;
+
+        /// Document is valid JSON data
+        const IS_JSON = 0;
+
+        /// Document was checked, and was not valid JSON
+        const INVALID_JSON = 1;
+
+        /// Document was checked, and contained reserved keys,
+        /// was not inserted as JSON.
+        const INVALID_JSON_KEY = 2;
+
+         /// Document was not checked (DB running in non-JSON mode)
+        const NON_JSON_MODE = 3;
     }
 }
 
@@ -217,9 +302,39 @@ impl Db {
     }
 
     fn write_header(&mut self) {
-        let buf = &[];
+        let (totalsize, seqrootsize, idrootsize, localrootsize) = self.calculate_header_size();
 
-        let header_pos = file_write::write_header(&mut self.file, buf);
+        let mut b = Vec::with_capacity(totalsize);
+
+        let mut cursor = Cursor::new(&mut b);
+
+        cursor.write_u8(self.header.disk_version.into()).unwrap();
+        cursor
+            .write_u64::<BigEndian>(self.header.update_seq)
+            .unwrap();
+        cursor
+            .write_u64::<BigEndian>(self.header.purge_seq)
+            .unwrap();
+        cursor
+            .write_u64::<BigEndian>(self.header.purge_ptr)
+            .unwrap();
+        cursor.write_u16::<BigEndian>(seqrootsize as u16).unwrap();
+        cursor.write_u16::<BigEndian>(idrootsize as u16).unwrap();
+        cursor.write_u16::<BigEndian>(localrootsize as u16).unwrap();
+        cursor
+            .write_u64::<BigEndian>(self.header.timestamp)
+            .unwrap();
+        if let Some(by_seq_root) = &self.header.by_seq_root {
+            by_seq_root.encode(&mut cursor).unwrap();
+        }
+        if let Some(by_id_root) = &self.header.by_id_root {
+            by_id_root.encode(&mut cursor).unwrap();
+        }
+        if let Some(local_docs_root) = &self.header.local_docs_root {
+            local_docs_root.encode(&mut cursor).unwrap();
+        }
+
+        let header_pos = file_write::write_header(&mut self.file, &b);
         self.header.position = header_pos as u64;
     }
 

@@ -64,6 +64,6 @@ pub fn write_header(tree_file: &mut TreeFile, buf: &[u8]) -> usize {
     pos
 }
 
-pub fn db_write_buf() {}
+pub fn db_write_buf(file: &TreeFile, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {}
 
-pub fn db_write_buf_compressed() {}
+pub fn db_write_buf_compressed(file: &TreeFile, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {}
