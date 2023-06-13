@@ -1,10 +1,7 @@
-use std::io::Cursor;
-
 use crate::{
     btree_modify::{
         CouchfileModifyAction, CouchfileModifyActionType, CouchfileModifyRequest, UpdateIdContext,
     },
-    file_write::{db_write_buf, db_write_buf_compressed},
     ContentMetaFlag, Db, Doc, DocInfo, SaveOptions,
 };
 
@@ -19,7 +16,12 @@ use crate::{
 pub struct ModifyResult {}
 
 impl Db {
-    fn couchstore_save_document(&mut self, doc: Option<Doc>, info: DocInfo, options: SaveOptions) {
+    pub(crate) fn couchstore_save_document(
+        &mut self,
+        doc: Option<Doc>,
+        info: DocInfo,
+        options: SaveOptions,
+    ) {
         self.save_documents_and_callback(doc.map(|doc| vec![doc]), vec![info], options);
     }
 
@@ -109,17 +111,14 @@ impl Db {
 
         ids.push(updated.id.clone());
 
-        let mut seq_index_value_vec = Vec::new();
-        let mut id_index_value_vec = Vec::new();
-
-        let mut seq_index_value = Cursor::new(&mut seq_index_value_vec[..]);
-        let mut id_index_value = Cursor::new(&mut id_index_value_vec[..]);
+        let mut seq_index_value = Vec::new();
+        let mut id_index_value = Vec::new();
 
         updated.encode_id_index_value(&mut id_index_value);
         updated.encode_seq_index_value(&mut seq_index_value);
 
-        id_idx.push(id_index_value_vec);
-        seq_idx.push(seq_index_value_vec);
+        id_idx.push(id_index_value);
+        seq_idx.push(seq_index_value);
     }
 
     fn update_indexes(
@@ -147,6 +146,8 @@ impl Db {
             context: UpdateIdContext {
                 seq_actions: vec![],
             },
+            kv_chunk_threshold: self.opts.kv_chunk_threshold,
+            kp_chunk_threshold: self.opts.kp_chunk_threshold,
         };
 
         self.file
@@ -155,9 +156,9 @@ impl Db {
 
     fn write_doc(&mut self, doc: &Doc, bp: &mut u64, disk_size: &mut u32, options: SaveOptions) {
         if options.contains(SaveOptions::COMPRESS_DOC_BODIES) {
-            db_write_buf_compressed(&self.file, &doc.data, bp, disk_size)
+            self.file.db_write_buf_compressed(&doc.data, bp, disk_size)
         } else {
-            db_write_buf(&self.file, &doc.data, bp, disk_size)
+            self.file.db_write_buf(&doc.data, bp, disk_size)
         }
     }
 }

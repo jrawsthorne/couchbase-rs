@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Write};
+use std::io::{self, Cursor, Read, Write};
 
 use crate::{ContentMetaFlag, DiskVersion, DocInfo};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -18,7 +18,7 @@ pub struct RawFileHeaderV13 {
 impl RawFileHeaderV13 {
     pub const ON_DISK_SIZE: usize = 33;
 
-    pub fn decode(buf: &mut Cursor<&[u8]>) -> RawFileHeaderV13 {
+    pub fn decode(mut buf: impl io::Read) -> RawFileHeaderV13 {
         let version = DiskVersion::try_from(buf.read_u8().unwrap()).unwrap();
         let update_seq = buf.read_u48::<BigEndian>().unwrap();
         let purge_seq = buf.read_u48::<BigEndian>().unwrap();
@@ -39,7 +39,7 @@ impl RawFileHeaderV13 {
         }
     }
 
-    pub fn encode(&self, buf: &mut Cursor<&mut [u8]>) {
+    pub fn encode(&self, mut buf: impl io::Write) {
         buf.write_u8(self.version.into()).unwrap();
         buf.write_u48::<BigEndian>(self.update_seq).unwrap();
         buf.write_u48::<BigEndian>(self.purge_seq).unwrap();
@@ -100,6 +100,13 @@ pub fn read_kv<'a>(buf: &mut Cursor<&'a [u8]>) -> Option<(&'a [u8], &'a [u8])> {
     Some((key, value))
 }
 
+pub fn write_kv(buf: &mut Cursor<&mut [u8]>, key: &[u8], value: &[u8]) {
+    let kv = encode_kv_length(key.len() as u32, value.len() as u32);
+    buf.write_all(&kv).unwrap();
+    buf.write_all(key).unwrap();
+    buf.write_all(value).unwrap();
+}
+
 struct RawNodePointer {
     pub pointer: u64,
     pub sub_size: u16,
@@ -109,7 +116,7 @@ struct RawNodePointer {
 pub fn read_raw_node_pointer() {}
 
 impl DocInfo {
-    pub fn encode_id_index_value(&self, buf: &mut Cursor<&mut [u8]>) {
+    pub fn encode_id_index_value<W: io::Write>(&self, mut buf: W) {
         buf.write_u48::<BigEndian>(self.db_seq).unwrap();
         buf.write_u32::<BigEndian>(self.physical_size).unwrap();
         buf.write_u48::<BigEndian>(
@@ -128,7 +135,7 @@ impl DocInfo {
         buf.write_all(&self.rev_meta).unwrap();
     }
 
-    pub fn encode_seq_index_value(&self, buf: &mut Cursor<&mut [u8]>) {
+    pub fn encode_seq_index_value<W: io::Write>(&self, mut buf: W) {
         let mut sizes = encode_kv_length(self.id.len() as u32, self.physical_size as u32);
         buf.write_all(&mut sizes).unwrap();
         buf.write_u48::<BigEndian>(self.bp).unwrap();

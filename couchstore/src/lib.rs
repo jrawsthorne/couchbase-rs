@@ -13,6 +13,7 @@ mod node_types;
 mod save;
 mod utils;
 
+use btree_modify::{CouchfileModifyAction, CouchfileModifyActionType, CouchfileModifyRequest};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use constants::COUCH_BLOCK_SIZE;
 use file_read::pread_header;
@@ -35,7 +36,10 @@ pub struct Db {
     read_only: bool,
     file: TreeFile,
     header: Header,
+    opts: DBOpenOptions,
 }
+
+pub struct TreeFileOptions {}
 
 #[derive(Debug, Clone, Default)]
 pub struct Header {
@@ -96,7 +100,7 @@ impl NodePointer {
         })
     }
 
-    fn encode(&self, buf: &mut impl io::Write) -> io::Result<()> {
+    fn encode(&self, mut buf: impl io::Write) -> io::Result<()> {
         buf.write_u48::<BigEndian>(self.pointer)?;
         buf.write_u48::<BigEndian>(self.subtree_size)?;
         buf.write_all(&self.reduce_value)?;
@@ -184,11 +188,16 @@ bitflags! {
 pub struct TreeFile {
     pos: usize,
     file: File,
+    options: DBOpenOptions,
 }
 
 impl TreeFile {
-    pub fn new(file: File) -> TreeFile {
-        TreeFile { pos: 0, file }
+    pub fn new(file: File, options: DBOpenOptions) -> TreeFile {
+        TreeFile {
+            pos: 0,
+            file,
+            options,
+        }
     }
 }
 
@@ -196,6 +205,8 @@ const ROOT_BASE_SIZE: usize = 12;
 
 impl Db {
     pub fn open(filename: impl AsRef<Path>, opts: DBOpenOptions) -> Db {
+        dbg!(opts);
+
         let file = OpenOptions::new()
             .read(true)
             .write(!opts.read_only)
@@ -203,7 +214,7 @@ impl Db {
             .open(filename)
             .unwrap();
 
-        let mut tree_file = TreeFile::new(file);
+        let mut tree_file = TreeFile::new(file, opts);
 
         tree_file.pos = tree_file.file.seek(SeekFrom::End(0)).unwrap() as usize;
 
@@ -211,15 +222,46 @@ impl Db {
             read_only: opts.read_only,
             file: tree_file,
             header: Header::default(),
+            opts,
         };
 
         if db.file.pos == 0 {
+            println!("create header");
             db.create_header();
         } else {
             db.find_header(db.file.pos - 2);
+            dbg!(&db.header);
         }
 
         db
+    }
+
+    pub fn set(&mut self, key: impl AsRef<str>, value: Vec<u8>) {
+        let key = key.as_ref();
+
+        let mut key_b = Vec::new();
+        key_b.write_all(&[0]).unwrap(); // default collection prefix
+        key_b.write_all(key.as_bytes()).unwrap();
+
+        let doc = Doc {
+            id: key_b.clone(),
+            data: value.clone(),
+        };
+
+        let physical_size = value.len() as u32;
+
+        let doc_info = DocInfo {
+            id: key_b,
+            db_seq: 0,
+            rev_seq: 0,
+            rev_meta: vec![],
+            deleted: false,
+            content_meta: ContentMetaFlag::IS_JSON,
+            bp: 0,
+            physical_size,
+        };
+
+        self.couchstore_save_document(Some(doc), doc_info, SaveOptions::COMPRESS_DOC_BODIES);
     }
 
     pub fn get(&mut self, key: impl AsRef<str>) -> Option<Vec<u8>> {
@@ -304,37 +346,29 @@ impl Db {
     fn write_header(&mut self) {
         let (totalsize, seqrootsize, idrootsize, localrootsize) = self.calculate_header_size();
 
+        dbg!(totalsize);
+
         let mut b = Vec::with_capacity(totalsize);
 
-        let mut cursor = Cursor::new(&mut b);
-
-        cursor.write_u8(self.header.disk_version.into()).unwrap();
-        cursor
-            .write_u64::<BigEndian>(self.header.update_seq)
-            .unwrap();
-        cursor
-            .write_u64::<BigEndian>(self.header.purge_seq)
-            .unwrap();
-        cursor
-            .write_u64::<BigEndian>(self.header.purge_ptr)
-            .unwrap();
-        cursor.write_u16::<BigEndian>(seqrootsize as u16).unwrap();
-        cursor.write_u16::<BigEndian>(idrootsize as u16).unwrap();
-        cursor.write_u16::<BigEndian>(localrootsize as u16).unwrap();
-        cursor
-            .write_u64::<BigEndian>(self.header.timestamp)
-            .unwrap();
+        b.write_u8(self.header.disk_version.into()).unwrap();
+        b.write_u64::<BigEndian>(self.header.update_seq).unwrap();
+        b.write_u64::<BigEndian>(self.header.purge_seq).unwrap();
+        b.write_u64::<BigEndian>(self.header.purge_ptr).unwrap();
+        b.write_u16::<BigEndian>(seqrootsize as u16).unwrap();
+        b.write_u16::<BigEndian>(idrootsize as u16).unwrap();
+        b.write_u16::<BigEndian>(localrootsize as u16).unwrap();
+        b.write_u64::<BigEndian>(self.header.timestamp).unwrap();
         if let Some(by_seq_root) = &self.header.by_seq_root {
-            by_seq_root.encode(&mut cursor).unwrap();
+            by_seq_root.encode(&mut b).unwrap();
         }
         if let Some(by_id_root) = &self.header.by_id_root {
-            by_id_root.encode(&mut cursor).unwrap();
+            by_id_root.encode(&mut b).unwrap();
         }
         if let Some(local_docs_root) = &self.header.local_docs_root {
-            local_docs_root.encode(&mut cursor).unwrap();
+            local_docs_root.encode(&mut b).unwrap();
         }
 
-        let header_pos = file_write::write_header(&mut self.file, &b);
+        let header_pos = self.file.write_header(&b);
         self.header.position = header_pos as u64;
     }
 
@@ -360,12 +394,17 @@ impl Db {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct DBOpenOptions {
     /// Create a new empty .couch file if file doesn't exist.
     create: bool,
 
     /// Open the database in read only mode
     read_only: bool,
+
+    kv_chunk_threshold: usize,
+
+    kp_chunk_threshold: usize,
 }
 
 impl Default for DBOpenOptions {
@@ -373,6 +412,8 @@ impl Default for DBOpenOptions {
         Self {
             create: true,
             read_only: false,
+            kv_chunk_threshold: 1279,
+            kp_chunk_threshold: 1279,
         }
     }
 }

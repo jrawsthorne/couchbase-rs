@@ -1,9 +1,12 @@
-use std::io::Cursor;
+use std::{fmt::Debug, io::Cursor};
+
+use byteorder::WriteBytesExt;
 
 use crate::{
     btree_read::NodeType, file_read::pread_compressed, node_types::read_kv, NodePointer, TreeFile,
 };
 
+#[derive(Debug)]
 pub struct CouchfileModifyResult<'a, Ctx> {
     pub node_type: NodeType,
     pub req: &'a CouchfileModifyRequest<Ctx>,
@@ -12,6 +15,7 @@ pub struct CouchfileModifyResult<'a, Ctx> {
     pub count: usize,
     pub pointers: Vec<Node>,
     pub modified: bool,
+    pub compacting: bool,
 }
 
 impl<'a, Ctx> CouchfileModifyResult<'a, Ctx> {
@@ -24,6 +28,7 @@ impl<'a, Ctx> CouchfileModifyResult<'a, Ctx> {
             count: 0,
             pointers: Vec::new(),
             modified: false,
+            compacting: false,
         }
     }
 }
@@ -32,6 +37,7 @@ trait Modifier: Sized {
     fn on_fetch(&mut self, req: CouchfileModifyRequest<Self>, key: &[u8], value: &[u8]);
 }
 
+#[derive(Debug)]
 pub struct UpdateIdContext {
     pub seq_actions: Vec<CouchfileModifyAction>,
 }
@@ -49,18 +55,22 @@ impl Modifier for UpdateIdContext {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CouchfileModifyRequest<Ctx> {
     pub actions: Vec<CouchfileModifyAction>,
     pub context: Ctx,
+    pub kv_chunk_threshold: usize,
+    pub kp_chunk_threshold: usize,
 }
 
+#[derive(Debug)]
 pub struct Node {
     pub data: Vec<u8>,
     pub key: Vec<u8>,
     pub pointer: Option<NodePointer>,
 }
 
+#[derive(Debug)]
 pub struct CouchfileModifyAction {
     pub key: Vec<u8>,
     pub data: Option<Vec<u8>>,
@@ -76,13 +86,13 @@ pub enum CouchfileModifyActionType {
 }
 
 impl TreeFile {
-    pub fn modify_btree<Ctx>(
+    pub fn modify_btree<Ctx: Debug>(
         &mut self,
         req: CouchfileModifyRequest<Ctx>,
         root: Option<NodePointer>,
     ) -> Option<NodePointer> {
         let num_actions = req.actions.len();
-        let root_result = self.modify_node(req, root.clone(), 0, num_actions);
+        let root_result = self.modify_node(&req, root.clone(), 0, num_actions);
 
         let mut ret = root;
 
@@ -98,13 +108,13 @@ impl TreeFile {
         return ret;
     }
 
-    pub fn modify_node<Ctx>(
+    pub fn modify_node<'a, Ctx: Debug>(
         &mut self,
-        req: CouchfileModifyRequest<Ctx>,
+        req: &'a CouchfileModifyRequest<Ctx>,
         mut node_pointer: Option<NodePointer>,
         mut start: usize,
         end: usize,
-    ) -> CouchfileModifyResult<Ctx> {
+    ) -> CouchfileModifyResult<'a, Ctx> {
         let mut node_buf = Vec::new();
 
         if let Some(node_pointer) = &node_pointer {
@@ -113,7 +123,7 @@ impl TreeFile {
 
         let mut cursor = Cursor::new(node_buf.as_ref());
 
-        let mut local_result = CouchfileModifyResult::new(&req);
+        let mut local_result = CouchfileModifyResult::new(req);
 
         if node_pointer.is_none() || node_buf[0] == 1 {
             // KV Node
@@ -160,7 +170,11 @@ impl TreeFile {
             panic!("Invalid node type");
         }
 
-        todo!()
+        dbg!(&local_result);
+
+        self.flush_mr(&mut local_result);
+
+        local_result
     }
 }
 
@@ -185,23 +199,62 @@ pub fn mr_push_item<Ctx>(key: &[u8], value: &[u8], result: &mut CouchfileModifyR
     result.node_length += key.len() + value.len() + 5; // key + value + 48 bit packed key + value length
 }
 
-pub fn maybe_flush<Ctx>(result: &CouchfileModifyResult<Ctx>) {
-    if result.modified && result.count > 3 {
-        // TODO: check configurable kv_chunk_threshold and kp_chunk_threshold
-        match result.node_type {
-            NodeType::KPNode => {}
-            NodeType::KVNode => todo!(),
-            _ => {}
+impl TreeFile {
+    pub fn maybe_flush<Ctx>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
+        if result.compacting {
+            todo!()
+        } else if result.modified && result.count > 3 {
+            let threshold = match result.node_type {
+                NodeType::KVNode => result.req.kv_chunk_threshold,
+                NodeType::KPNode => result.req.kp_chunk_threshold,
+            };
+            if result.node_length > threshold {
+                let quota = threshold * 2 / 3;
+                self.flush_mr_partial(result, quota);
+            }
         }
     }
-}
 
-/// Write the current contents of the values list to disk as a node
-/// and add the resulting pointer to the pointers list.
-pub fn flush_mr<Ctx>(result: &CouchfileModifyResult<Ctx>) {
-    flush_mr_partial(result, result.node_length)
-}
+    /// Write the current contents of the values list to disk as a node
+    /// and add the resulting pointer to the pointers list.
+    pub fn flush_mr<Ctx>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
+        self.flush_mr_partial(result, result.node_length)
+    }
 
-/// Write a node using enough items from the values list to create a node
-/// with uncompressed size of at least mr_quota
-pub fn flush_mr_partial<Ctx>(result: &CouchfileModifyResult<Ctx>, mr_quota: usize) {}
+    /// Write a node using enough items from the values list to create a node
+    /// with uncompressed size of at least mr_quota
+    pub fn flush_mr_partial<Ctx>(
+        &mut self,
+        result: &mut CouchfileModifyResult<Ctx>,
+        mut mr_quota: usize,
+    ) {
+        if result.values.is_empty() || !result.modified {
+            return;
+        }
+
+        let mut nodebuf = Vec::with_capacity(result.node_length + 1);
+
+        nodebuf.write_u8(result.node_type.into()).unwrap();
+
+        let mut diskpos = 0;
+        let mut disksize = 0;
+        let mut item_count = 0;
+        let mut final_key = Vec::new();
+
+        let mut values_iter = result.values.iter();
+
+        while let Some(value) = values_iter.next() {}
+
+        for value in result.values.iter() {
+            if mr_quota > 0 || (item_count >= 2 && result.node_type == NodeType::KPNode) {
+                mr_quota -= value.key.len() + value.data.len() + 5;
+                final_key = value.key.clone();
+                result.count -= 1;
+                item_count += 1;
+            }
+            break;
+        }
+
+        self.db_write_buf_compressed(&nodebuf, &mut diskpos, &mut disksize);
+    }
+}
