@@ -2,9 +2,7 @@ use std::{fmt::Debug, io::Cursor};
 
 use byteorder::WriteBytesExt;
 
-use crate::{
-    btree_read::NodeType, file_read::pread_compressed, node_types::read_kv, NodePointer, TreeFile,
-};
+use crate::{btree_read::NodeType, node_types::read_kv, NodePointer, TreeFile};
 
 #[derive(Debug)]
 pub struct CouchfileModifyResult<'a, Ctx> {
@@ -96,6 +94,8 @@ impl TreeFile {
 
         let mut ret = root;
 
+        dbg!(&root_result);
+
         if root_result.modified {
             if root_result.count > 1 || !root_result.pointers.is_empty() {
                 //The root was split
@@ -118,7 +118,7 @@ impl TreeFile {
         let mut node_buf = Vec::new();
 
         if let Some(node_pointer) = &node_pointer {
-            node_buf = pread_compressed(self, node_pointer.pointer as usize);
+            node_buf = self.pread_compressed(node_pointer.pointer as usize);
         }
 
         let mut cursor = Cursor::new(node_buf.as_ref());

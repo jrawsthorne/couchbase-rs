@@ -3,7 +3,7 @@ use std::io::Cursor;
 use byteorder::ReadBytesExt;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use crate::{btree::CouchfileLookupRequest, file_read::pread_compressed, node_types::read_kv};
+use crate::{btree::CouchfileLookupRequest, node_types::read_kv};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, TryFromPrimitive, IntoPrimitive, Default)]
 #[repr(u8)]
@@ -15,7 +15,7 @@ pub enum NodeType {
 
 // TODO: support multiple keys
 pub fn btree_lookup_inner(req: &mut CouchfileLookupRequest, diskpos: usize) -> Option<Vec<u8>> {
-    let node = pread_compressed(req.file, diskpos);
+    let node = req.file.pread_compressed(diskpos);
 
     let mut cursor = Cursor::new(node.as_ref());
 
@@ -46,7 +46,7 @@ pub fn btree_lookup_inner(req: &mut CouchfileLookupRequest, diskpos: usize) -> O
                     if req.key == cmp_key {
                         let pointer = (&value[10..16]).read_u48::<byteorder::BigEndian>().unwrap();
 
-                        let val = pread_compressed(req.file, pointer as usize);
+                        let val = req.file.pread_compressed(pointer as usize);
                         ret = Some(val);
                     }
                 }

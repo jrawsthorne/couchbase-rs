@@ -16,7 +16,6 @@ mod utils;
 use btree_modify::{CouchfileModifyAction, CouchfileModifyActionType, CouchfileModifyRequest};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use constants::COUCH_BLOCK_SIZE;
-use file_read::pread_header;
 use node_types::RawFileHeaderV13;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -267,7 +266,7 @@ impl Db {
     pub fn get(&mut self, key: impl AsRef<str>) -> Option<Vec<u8>> {
         let key = key.as_ref();
 
-        let pos = self.header.by_id_root.as_ref().unwrap().pointer as usize;
+        let pos = self.header.by_id_root.as_ref()?.pointer as usize;
 
         let mut key_b = Vec::new();
         key_b.write_all(&[0]).unwrap(); // default collection prefix
@@ -289,7 +288,7 @@ impl Db {
 
         loop {
             self.find_header_at_pos(pos);
-            pos -= COUCH_BLOCK_SIZE;
+            // pos -= COUCH_BLOCK_SIZE;
             break; // error handling
         }
     }
@@ -300,11 +299,13 @@ impl Db {
 
         assert_eq!(disk_block_type, DiskBlockType::Header);
 
-        let header_buf = pread_header(&mut self.file, pos, Some(MAX_DB_HEADER_SIZE));
+        let header_buf = self.file.pread_header(pos, Some(MAX_DB_HEADER_SIZE));
 
         let mut cursor = Cursor::new(&header_buf[..]);
 
         let header = RawFileHeaderV13::decode(&mut cursor);
+
+        dbg!(header);
 
         assert!(header.purge_ptr <= pos as u64);
         assert_eq!(
@@ -351,9 +352,9 @@ impl Db {
         let mut b = Vec::with_capacity(totalsize);
 
         b.write_u8(self.header.disk_version.into()).unwrap();
-        b.write_u64::<BigEndian>(self.header.update_seq).unwrap();
-        b.write_u64::<BigEndian>(self.header.purge_seq).unwrap();
-        b.write_u64::<BigEndian>(self.header.purge_ptr).unwrap();
+        b.write_u48::<BigEndian>(self.header.update_seq).unwrap();
+        b.write_u48::<BigEndian>(self.header.purge_seq).unwrap();
+        b.write_u48::<BigEndian>(self.header.purge_ptr).unwrap();
         b.write_u16::<BigEndian>(seqrootsize as u16).unwrap();
         b.write_u16::<BigEndian>(idrootsize as u16).unwrap();
         b.write_u16::<BigEndian>(localrootsize as u16).unwrap();
