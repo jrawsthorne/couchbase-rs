@@ -100,7 +100,7 @@ pub fn read_kv<'a>(buf: &mut Cursor<&'a [u8]>) -> Option<(&'a [u8], &'a [u8])> {
     Some((key, value))
 }
 
-pub fn write_kv(buf: &mut Cursor<&mut [u8]>, key: &[u8], value: &[u8]) {
+pub fn write_kv<W: io::Write>(mut buf: W, key: &[u8], value: &[u8]) {
     let kv = encode_kv_length(key.len() as u32, value.len() as u32);
     buf.write_all(&kv).unwrap();
     buf.write_all(key).unwrap();

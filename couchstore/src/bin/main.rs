@@ -30,7 +30,7 @@ fn main() {
     match action.as_str() {
         "get" => {
             let mut db = Db::open(
-                format!("/home/jrawsthorne/Code/github.com/couchbase/couchstore/data/travel-sample/{vbucket}.couch.1"),
+                format!("./data/travel-sample/{vbucket}.couch.1"),
                 DBOpenOptions::default(),
             );
             let val = db.get(key).unwrap();
@@ -39,7 +39,7 @@ fn main() {
         }
         "set" => {
             let path = format!("./data/travel-sample/{vbucket}.couch.1");
-            let _ = std::fs::remove_file(&path);
+            std::fs::remove_file(&path).unwrap();
             let mut db = Db::open(&path, DBOpenOptions::default());
             db.set(key, value);
             let val = db.get(key).unwrap();

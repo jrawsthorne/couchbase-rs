@@ -1,17 +1,21 @@
-use std::{fmt::Debug, io::Cursor};
+use std::{collections::VecDeque, fmt::Debug, io::Cursor};
 
 use byteorder::WriteBytesExt;
 
-use crate::{btree_read::NodeType, node_types::read_kv, NodePointer, TreeFile};
+use crate::{
+    btree_read::NodeType,
+    node_types::{read_kv, write_kv},
+    NodePointer, TreeFile,
+};
 
 #[derive(Debug)]
 pub struct CouchfileModifyResult<'a, Ctx> {
     pub node_type: NodeType,
     pub req: &'a CouchfileModifyRequest<Ctx>,
-    pub values: Vec<Node>,
+    pub values: VecDeque<Node>,
     pub node_length: usize,
     pub count: usize,
-    pub pointers: Vec<Node>,
+    pub pointers: VecDeque<Node>,
     pub modified: bool,
     pub compacting: bool,
 }
@@ -21,10 +25,10 @@ impl<'a, Ctx> CouchfileModifyResult<'a, Ctx> {
         Self {
             node_type: NodeType::default(),
             req,
-            values: Vec::new(),
+            values: VecDeque::new(),
             node_length: 0,
             count: 0,
-            pointers: Vec::new(),
+            pointers: VecDeque::new(),
             modified: false,
             compacting: false,
         }
@@ -87,23 +91,29 @@ impl TreeFile {
     pub fn modify_btree<Ctx: Debug>(
         &mut self,
         req: CouchfileModifyRequest<Ctx>,
-        root: Option<NodePointer>,
+        mut root: Option<NodePointer>,
     ) -> Option<NodePointer> {
         let num_actions = req.actions.len();
-        let root_result = self.modify_node(&req, root.clone(), 0, num_actions);
+        let mut root_result = CouchfileModifyResult::new(&req);
+        root_result.node_type = NodeType::KPNode;
+        self.modify_node(&req, root.as_mut(), 0, num_actions, &mut root_result);
 
         let mut ret = root;
 
         dbg!(&root_result);
 
         if root_result.modified {
+            dbg!(root_result.count);
+            dbg!(&root_result.pointers);
             if root_result.count > 1 || !root_result.pointers.is_empty() {
                 //The root was split
                 //Write it to disk and return the pointer to it.
             } else {
-                ret = root_result.pointers.last().unwrap().pointer.clone();
+                ret = root_result.pointers.back().unwrap().pointer.clone();
             }
         }
+
+        dbg!(&ret);
 
         return ret;
     }
@@ -111,10 +121,11 @@ impl TreeFile {
     pub fn modify_node<'a, Ctx: Debug>(
         &mut self,
         req: &'a CouchfileModifyRequest<Ctx>,
-        mut node_pointer: Option<NodePointer>,
+        node_pointer: Option<&mut NodePointer>,
         mut start: usize,
         end: usize,
-    ) -> CouchfileModifyResult<'a, Ctx> {
+        dst: &mut CouchfileModifyResult<'a, Ctx>,
+    ) {
         let mut node_buf = Vec::new();
 
         if let Some(node_pointer) = &node_pointer {
@@ -174,11 +185,43 @@ impl TreeFile {
 
         self.flush_mr(&mut local_result);
 
-        local_result
+        dbg!(&local_result);
+
+        if !local_result.modified && node_pointer.is_some() {
+            self.mr_push_pointerinfo(node_pointer.cloned().unwrap(), dst);
+        } else {
+            dst.modified = true;
+            self.mr_move_pointers(&mut local_result, dst)
+        }
+    }
+
+    fn mr_push_pointerinfo<Ctx>(&mut self, ptr: NodePointer, dst: &mut CouchfileModifyResult<Ctx>) {
+        let mut data = Vec::new();
+        ptr.encode(&mut data).unwrap();
+
+        let raw_ptr = Node {
+            data,
+            key: ptr.key.as_ref().cloned().unwrap_or_default(),
+            pointer: Some(ptr),
+        };
+
+        dst.node_length += raw_ptr.key.len() + raw_ptr.data.len() + 5;
+        dst.values.push_back(raw_ptr);
+    }
+
+    fn mr_move_pointers<Ctx: Debug>(
+        &mut self,
+        src: &mut CouchfileModifyResult<Ctx>,
+        dst: &mut CouchfileModifyResult<Ctx>,
+    ) {
+        for val in src.pointers.drain(..) {
+            dst.values.push_back(val);
+            self.maybe_flush(dst);
+        }
     }
 }
 
-pub fn maybe_pure_kv<Ctx>(
+pub fn maybe_pure_kv<Ctx: Debug>(
     req: &mut CouchfileModifyRequest<Ctx>,
     key: &[u8],
     value: &[u8],
@@ -189,8 +232,8 @@ pub fn maybe_pure_kv<Ctx>(
     mr_push_item(key, value, result)
 }
 
-pub fn mr_push_item<Ctx>(key: &[u8], value: &[u8], result: &mut CouchfileModifyResult<Ctx>) {
-    result.values.push(Node {
+pub fn mr_push_item<Ctx: Debug>(key: &[u8], value: &[u8], result: &mut CouchfileModifyResult<Ctx>) {
+    result.values.push_back(Node {
         data: value.to_vec(),
         key: key.to_vec(),
         pointer: None,
@@ -200,7 +243,7 @@ pub fn mr_push_item<Ctx>(key: &[u8], value: &[u8], result: &mut CouchfileModifyR
 }
 
 impl TreeFile {
-    pub fn maybe_flush<Ctx>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
+    pub fn maybe_flush<Ctx: Debug>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
         if result.compacting {
             todo!()
         } else if result.modified && result.count > 3 {
@@ -217,13 +260,13 @@ impl TreeFile {
 
     /// Write the current contents of the values list to disk as a node
     /// and add the resulting pointer to the pointers list.
-    pub fn flush_mr<Ctx>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
+    pub fn flush_mr<Ctx: Debug>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
         self.flush_mr_partial(result, result.node_length)
     }
 
     /// Write a node using enough items from the values list to create a node
     /// with uncompressed size of at least mr_quota
-    pub fn flush_mr_partial<Ctx>(
+    pub fn flush_mr_partial<Ctx: Debug>(
         &mut self,
         result: &mut CouchfileModifyResult<Ctx>,
         mut mr_quota: usize,
@@ -237,24 +280,50 @@ impl TreeFile {
         nodebuf.write_u8(result.node_type.into()).unwrap();
 
         let mut diskpos = 0;
+        let mut subtreesize = 0;
         let mut disksize = 0;
         let mut item_count = 0;
         let mut final_key = Vec::new();
 
-        let mut values_iter = result.values.iter();
-
-        while let Some(value) = values_iter.next() {}
-
-        for value in result.values.iter() {
+        while let Some(value) = result.values.pop_front() {
             if mr_quota > 0 || (item_count >= 2 && result.node_type == NodeType::KPNode) {
+                write_kv(&mut nodebuf, &value.key, &value.data);
+
+                if let Some(pointer) = &value.pointer {
+                    subtreesize += pointer.subtree_size
+                }
+
                 mr_quota -= value.key.len() + value.data.len() + 5;
                 final_key = value.key.clone();
                 result.count -= 1;
                 item_count += 1;
+            } else {
+                break;
             }
-            break;
         }
 
         self.db_write_buf_compressed(&nodebuf, &mut diskpos, &mut disksize);
+
+        let ptr = NodePointer {
+            pointer: diskpos as u64,
+            subtree_size: subtreesize + u64::from(disksize),
+            key: Some(final_key.clone()),
+            reduce_value: vec![],
+        };
+
+        let mut data = Vec::new();
+
+        ptr.encode(&mut data).unwrap();
+
+        let raw_ptr = Node {
+            data,
+            key: final_key,
+            pointer: Some(ptr),
+        };
+
+        result.node_length -= nodebuf.len() - 1;
+        result.pointers.push_back(raw_ptr);
+
+        dbg!(&result);
     }
 }

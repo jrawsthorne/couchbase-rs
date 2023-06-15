@@ -150,8 +150,11 @@ impl Db {
             kp_chunk_threshold: self.opts.kp_chunk_threshold,
         };
 
-        self.file
+        let new_id_root = self
+            .file
             .modify_btree(id_req, self.header.by_id_root.clone());
+
+        self.header.by_id_root = new_id_root;
     }
 
     fn write_doc(&mut self, doc: &Doc, bp: &mut u64, disk_size: &mut u32, options: SaveOptions) {
