@@ -100,20 +100,14 @@ impl TreeFile {
 
         let mut ret = root;
 
-        dbg!(&root_result);
-
         if root_result.modified {
-            dbg!(root_result.count);
-            dbg!(&root_result.pointers);
             if root_result.count > 1 || !root_result.pointers.is_empty() {
                 //The root was split
                 //Write it to disk and return the pointer to it.
             } else {
-                ret = root_result.pointers.back().unwrap().pointer.clone();
+                ret = root_result.values.back().unwrap().pointer.clone();
             }
         }
-
-        dbg!(&ret);
 
         return ret;
     }
@@ -136,7 +130,7 @@ impl TreeFile {
 
         let mut local_result = CouchfileModifyResult::new(req);
 
-        if node_pointer.is_none() || node_buf[0] == 1 {
+        if node_pointer.is_none() || node_buf[0] == NodeType::KVNode as u8 {
             // KV Node
             local_result.node_type = NodeType::KVNode;
 
@@ -166,7 +160,7 @@ impl TreeFile {
                     }
                     CouchfileModifyActionType::Insert | CouchfileModifyActionType::FetchInsert => {
                         local_result.modified = true;
-                        mr_push_item(
+                        self.mr_push_item(
                             &req.actions[start].key,
                             &req.actions[start].data.as_ref().unwrap(),
                             &mut local_result,
@@ -181,11 +175,7 @@ impl TreeFile {
             panic!("Invalid node type");
         }
 
-        dbg!(&local_result);
-
         self.flush_mr(&mut local_result);
-
-        dbg!(&local_result);
 
         if !local_result.modified && node_pointer.is_some() {
             self.mr_push_pointerinfo(node_pointer.cloned().unwrap(), dst);
@@ -219,28 +209,37 @@ impl TreeFile {
             self.maybe_flush(dst);
         }
     }
+
+    pub fn mr_push_item<Ctx: Debug>(
+        &mut self,
+        key: &[u8],
+        value: &[u8],
+        result: &mut CouchfileModifyResult<Ctx>,
+    ) {
+        result.values.push_back(Node {
+            data: value.to_vec(),
+            key: key.to_vec(),
+            pointer: None,
+        });
+        result.count += 1;
+        result.node_length += key.len() + value.len() + 5; // key + value + 48 bit packed key + value length
+        self.maybe_flush(result);
+    }
+
+    pub fn maybe_pure_kv<Ctx: Debug>(
+        &mut self,
+        req: &mut CouchfileModifyRequest<Ctx>,
+        key: &[u8],
+        value: &[u8],
+        result: &mut CouchfileModifyResult<Ctx>,
+    ) {
+        // TODO: Support purging???
+    
+        self.mr_push_item(key, value, result)
+    }
 }
 
-pub fn maybe_pure_kv<Ctx: Debug>(
-    req: &mut CouchfileModifyRequest<Ctx>,
-    key: &[u8],
-    value: &[u8],
-    result: &mut CouchfileModifyResult<Ctx>,
-) {
-    // TODO: Support purging???
 
-    mr_push_item(key, value, result)
-}
-
-pub fn mr_push_item<Ctx: Debug>(key: &[u8], value: &[u8], result: &mut CouchfileModifyResult<Ctx>) {
-    result.values.push_back(Node {
-        data: value.to_vec(),
-        key: key.to_vec(),
-        pointer: None,
-    });
-    result.count += 1;
-    result.node_length += key.len() + value.len() + 5; // key + value + 48 bit packed key + value length
-}
 
 impl TreeFile {
     pub fn maybe_flush<Ctx: Debug>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
@@ -306,7 +305,7 @@ impl TreeFile {
 
         let ptr = NodePointer {
             pointer: diskpos as u64,
-            subtree_size: subtreesize + u64::from(disksize),
+            subtree_size: u64::from(disksize), /* + subtreesize  */
             key: Some(final_key.clone()),
             reduce_value: vec![],
         };
@@ -323,7 +322,5 @@ impl TreeFile {
 
         result.node_length -= nodebuf.len() - 1;
         result.pointers.push_back(raw_ptr);
-
-        dbg!(&result);
     }
 }

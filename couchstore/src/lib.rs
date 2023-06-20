@@ -204,8 +204,6 @@ const ROOT_BASE_SIZE: usize = 12;
 
 impl Db {
     pub fn open(filename: impl AsRef<Path>, opts: DBOpenOptions) -> Db {
-        dbg!(opts);
-
         let file = OpenOptions::new()
             .read(true)
             .write(!opts.read_only)
@@ -225,11 +223,9 @@ impl Db {
         };
 
         if db.file.pos == 0 {
-            println!("create header");
             db.create_header();
         } else {
             db.find_header(db.file.pos - 2);
-            dbg!(&db.header);
         }
 
         db
@@ -255,12 +251,15 @@ impl Db {
             rev_seq: 0,
             rev_meta: vec![],
             deleted: false,
-            content_meta: ContentMetaFlag::IS_JSON,
+            content_meta: ContentMetaFlag::IS_JSON | ContentMetaFlag::IS_COMPRESSED,
             bp: 0,
             physical_size,
         };
 
         self.couchstore_save_document(Some(doc), doc_info, SaveOptions::COMPRESS_DOC_BODIES);
+
+        // TODO: separate commit, this is just for testing
+        self.write_header();
     }
 
     pub fn get(&mut self, key: impl AsRef<str>) -> Option<Vec<u8>> {
@@ -305,8 +304,6 @@ impl Db {
 
         let header = RawFileHeaderV13::decode(&mut cursor);
 
-        dbg!(header);
-
         assert!(header.purge_ptr <= pos as u64);
         assert_eq!(
             header_buf.len(),
@@ -346,8 +343,6 @@ impl Db {
 
     fn write_header(&mut self) {
         let (totalsize, seqrootsize, idrootsize, localrootsize) = self.calculate_header_size();
-
-        dbg!(totalsize);
 
         let mut b = Vec::with_capacity(totalsize);
 

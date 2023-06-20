@@ -39,12 +39,17 @@ fn main() {
         }
         "set" => {
             let path = format!("./data/travel-sample/{vbucket}.couch.1");
-            std::fs::remove_file(&path).unwrap();
-            let mut db = Db::open(&path, DBOpenOptions::default());
-            db.set(key, value);
-            let val = db.get(key).unwrap();
-            let json = serde_json::from_slice::<Value>(val.as_slice()).unwrap();
-            println!("{}", json);
+            {
+                std::fs::remove_file(&path);
+                let mut db = Db::open(&path, DBOpenOptions::default());
+                db.set(key, value);
+            }
+            {
+                let mut db = Db::open(&path, DBOpenOptions::default());
+                let val = db.get(key).unwrap();
+                let json = serde_json::from_slice::<Value>(val.as_slice()).unwrap();
+                println!("{}", json);
+            }
         }
         _ => panic!("Invalid action"),
     }
