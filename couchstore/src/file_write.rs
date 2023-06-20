@@ -10,7 +10,7 @@ impl TreeFile {
         self.file.flush().unwrap();
     }
 
-    pub fn raw_write(&mut self, disk_block_type: DiskBlockType, mut buf: &[u8], pos: usize) {
+    pub fn raw_write(&mut self, disk_block_type: DiskBlockType, mut buf: &[u8], pos: usize) -> usize {
         let mut write_pos = pos;
         let mut block_remain = 0;
         // break up the write buffer into blocks adding the block prefix as needed
@@ -30,6 +30,8 @@ impl TreeFile {
             write_pos += block_remain;
             buf = &buf[block_remain..];
         }
+
+        write_pos - pos
     }
 
     pub fn write_header(&mut self, buf: &[u8]) -> usize {
@@ -48,8 +50,6 @@ impl TreeFile {
         cursor.write_u32::<BigEndian>(size).unwrap();
         cursor.write_u32::<BigEndian>(crc32).unwrap();
 
-        dbg!(&header_buf);
-        dbg!(&buf);
 
         self.write_entire_buffer(&header_buf, write_pos);
 
@@ -63,7 +63,38 @@ impl TreeFile {
         pos
     }
 
-    pub fn db_write_buf(&mut self, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {}
+    pub fn db_write_buf(&mut self, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {
+        let write_pos = self.pos;
+        let mut end_pos = write_pos;
+        let mut written = 0;
 
-    pub fn db_write_buf_compressed(&mut self, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {}
+        let size = buf.len() | 0x8000_0000;
+        let crc32 = crc32c::crc32c(buf);
+
+        let mut header_buf = [0u8; 8];
+        let mut cursor = Cursor::new(&mut header_buf[..]);
+
+        // Write the header's block header
+        cursor.write_u32::<BigEndian>(size as u32).unwrap();
+        cursor.write_u32::<BigEndian>(crc32).unwrap();
+
+        written = self.raw_write(DiskBlockType::Data, &header_buf, end_pos);
+        end_pos += written;
+
+        // Write actual buffer
+        written = self.raw_write(DiskBlockType::Data, buf, end_pos);
+        end_pos += written;
+
+        *pos = write_pos as u64;
+
+        self.pos = end_pos;
+
+        *disk_size = (header_buf.len() + buf.len()) as u32;
+    }
+
+    pub fn db_write_buf_compressed(&mut self, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {
+        let mut encoder = snap::raw::Encoder::new();
+        let compressed_buf = encoder.compress_vec(buf).unwrap();
+        self.db_write_buf(&compressed_buf, pos, disk_size)
+    }
 }
