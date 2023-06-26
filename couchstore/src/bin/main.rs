@@ -9,21 +9,35 @@ fn v_bucket_hash(key: &str, num_vbuckets: u32) -> u16 {
     hash as u16
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Airline {
+    callsign: String,
+    country: String,
+    iata: String,
+    icao: String,
+    id: u32,
+    name: String,
+    r#type: String,
+    key: String,
+}
+
 fn main() {
     let action = std::env::args().nth(1).unwrap();
+    let key = std::env::args().nth(2).unwrap();
 
-    let key = "airline_10";
-    let value = r#"{
-        "callsign": "Aerocondor",
-        "country": "Portugal",
-        "iata": "2B",
-        "icao": "ARD",
-        "id": 10,
-        "name": "Aerocondor",
-        "type": "airline"
-    }"#
-    .as_bytes()
-    .to_vec();
+    let value = Airline {
+        callsign: "Aerocondor".to_string(),
+        country: "Portugal".to_string(),
+        iata: "2B".to_string(),
+        icao: "ARD".to_string(),
+        id: 10,
+        name: "Aerocondor".to_string(),
+        r#type: "airline".to_string(),
+        key: key.clone(),
+    };
+
+    let value = serde_json::to_vec(&value).unwrap();
+
     let num_vbuckets = 1024;
     let vbucket = v_bucket_hash(&key, num_vbuckets);
 
@@ -39,17 +53,9 @@ fn main() {
         }
         "set" => {
             let path = format!("./data/travel-sample/{vbucket}.couch.1");
-            {
-                std::fs::remove_file(&path);
                 let mut db = Db::open(&path, DBOpenOptions::default());
                 db.set(key, value);
-            }
-            {
-                let mut db = Db::open(&path, DBOpenOptions::default());
-                let val = db.get(key).unwrap();
-                let json = serde_json::from_slice::<Value>(val.as_slice()).unwrap();
-                println!("{}", json);
-            }
+        
         }
         _ => panic!("Invalid action"),
     }

@@ -5,14 +5,6 @@ use crate::{
     ContentMetaFlag, Db, Doc, DocInfo, SaveOptions,
 };
 
-// const RAW_SEQ_SIZE: usize = 6;
-
-// // raw_kv_length + bp + rev_seq + content_meta
-// const RAW_SEQ_INDEX_VALUE_SIZE: usize = 5 + 6 + 6 + 1;
-
-// // db_seq + pythsical_size + bp + rev_seq + content_meta
-// const RAW_ID_INDEX_VALUE_SIZE: usize = 6 + 4 + 6 + 6 + 1;
-
 pub struct ModifyResult {}
 
 impl Db {
@@ -31,14 +23,6 @@ impl Db {
         mut infos: Vec<DocInfo>,
         options: SaveOptions,
     ) {
-        // let mut term_meta_size = 0;
-
-        // for info in &infos {
-        //     term_meta_size += RAW_SEQ_SIZE;
-        //     term_meta_size += seq_index_raw_value_size(info);
-        //     term_meta_size += id_index_raw_value_size(info);
-        // }
-
         // TODO: Reduce allocations, couchstore uses 1 buffer for all the data
         let mut ids: Vec<Vec<u8>> = Vec::new();
         let mut seqs: Vec<u64> = Vec::new();
@@ -165,11 +149,3 @@ impl Db {
         }
     }
 }
-
-// fn seq_index_raw_value_size(doc_info: &DocInfo) -> usize {
-//     RAW_SEQ_INDEX_VALUE_SIZE + doc_info.id.len() + doc_info.rev_meta.len()
-// }
-
-// fn id_index_raw_value_size(doc_info: &DocInfo) -> usize {
-//     RAW_ID_INDEX_VALUE_SIZE + doc_info.rev_meta.len()
-// }

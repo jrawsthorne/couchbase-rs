@@ -123,7 +123,7 @@ impl TreeFile {
         let mut node_buf = Vec::new();
 
         if let Some(node_pointer) = &node_pointer {
-            node_buf = self.pread_compressed(node_pointer.pointer as usize);
+            node_buf = self.read_compressed(node_pointer.pointer as usize);
         }
 
         let mut cursor = Cursor::new(node_buf.as_ref());
@@ -234,12 +234,10 @@ impl TreeFile {
         result: &mut CouchfileModifyResult<Ctx>,
     ) {
         // TODO: Support purging???
-    
+
         self.mr_push_item(key, value, result)
     }
 }
-
-
 
 impl TreeFile {
     pub fn maybe_flush<Ctx: Debug>(&mut self, result: &mut CouchfileModifyResult<Ctx>) {
@@ -305,7 +303,7 @@ impl TreeFile {
 
         let ptr = NodePointer {
             pointer: diskpos as u64,
-            subtree_size: u64::from(disksize), /* + subtreesize  */
+            subtree_size: u64::from(disksize) + subtreesize,
             key: Some(final_key.clone()),
             reduce_value: vec![],
         };

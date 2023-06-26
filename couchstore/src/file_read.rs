@@ -5,8 +5,8 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use crate::{constants::COUCH_BLOCK_SIZE, TreeFile};
 
 impl TreeFile {
-    pub fn pread_compressed(&mut self, pos: usize) -> Vec<u8> {
-        let compressed_buf = self.pread_bin_internal(pos, None);
+    pub fn read_compressed(&mut self, pos: usize) -> Vec<u8> {
+        let compressed_buf = self.read(pos, None);
 
         // Couchstore does not use the frame format so we need the raw decoder.
         let decompressed_buf = snap::raw::Decoder::new()
@@ -16,11 +16,11 @@ impl TreeFile {
         return decompressed_buf;
     }
 
-    pub fn pread_bin(&mut self, pos: usize) -> Vec<u8> {
-        return self.pread_bin_internal(pos, None);
+    pub fn read_uncompressed(&mut self, pos: usize) -> Vec<u8> {
+        return self.read(pos, None);
     }
 
-    fn pread_bin_internal(&mut self, mut pos: usize, max_header_size: Option<usize>) -> Vec<u8> {
+    fn read(&mut self, mut pos: usize, max_header_size: Option<usize>) -> Vec<u8> {
         let mut info = [0u8; 8];
 
         self.read_skipping_prefixes(&mut pos, &mut info);
@@ -40,7 +40,6 @@ impl TreeFile {
 
         self.read_skipping_prefixes(&mut pos, &mut buf);
 
-        // How does crc32c differ from crc32?
         let crc32_calc = crc32c(&buf);
 
         assert_eq!(crc32, crc32_calc);
@@ -48,13 +47,8 @@ impl TreeFile {
         return buf;
     }
 
-    pub fn pread_header(&mut self, pos: usize, max_header_size: Option<usize>) -> Vec<u8> {
-        // TODO: make this more idiomatic
-        if max_header_size.is_none() {
-            panic!("max_header_size is None");
-        }
-
-        return self.pread_bin_internal(pos + 1, max_header_size);
+    pub fn read_header(&mut self, pos: usize, max_header_size: usize) -> Vec<u8> {
+        return self.read(pos + 1, Some(max_header_size));
     }
 
     pub fn read_skipping_prefixes(&mut self, pos: &mut usize, mut buf: &mut [u8]) {

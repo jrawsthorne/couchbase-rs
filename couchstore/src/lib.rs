@@ -19,9 +19,7 @@ use constants::COUCH_BLOCK_SIZE;
 use node_types::RawFileHeaderV13;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use crate::{
-    btree::CouchfileLookupRequest, btree_read::btree_lookup, constants::MAX_DB_HEADER_SIZE,
-};
+use crate::{btree::CouchfileLookupRequest, constants::MAX_DB_HEADER_SIZE};
 
 #[derive(Debug, Clone, Copy, IntoPrimitive, TryFromPrimitive, PartialEq, Eq)]
 #[repr(u8)]
@@ -271,13 +269,9 @@ impl Db {
         key_b.write_all(&[0]).unwrap(); // default collection prefix
         key_b.write_all(key.as_bytes()).unwrap();
 
-        return btree_lookup(
-            CouchfileLookupRequest {
-                file: &mut self.file,
-                key: key_b,
-            },
-            pos,
-        );
+        return self
+            .file
+            .btree_lookup(CouchfileLookupRequest { key: key_b }, pos);
     }
 
     fn find_header(&mut self, start_pos: usize) {
@@ -298,7 +292,7 @@ impl Db {
 
         assert_eq!(disk_block_type, DiskBlockType::Header);
 
-        let header_buf = self.file.pread_header(pos, Some(MAX_DB_HEADER_SIZE));
+        let header_buf = self.file.read_header(pos, MAX_DB_HEADER_SIZE);
 
         let mut cursor = Cursor::new(&header_buf[..]);
 

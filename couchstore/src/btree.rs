@@ -1,6 +1,3 @@
-use crate::TreeFile;
-
-pub struct CouchfileLookupRequest<'a> {
-    pub file: &'a mut TreeFile,
+pub struct CouchfileLookupRequest{
     pub key: Vec<u8>,
 }
