@@ -102,10 +102,45 @@ impl TreeFile {
 
         if root_result.modified {
             if root_result.count > 1 || !root_result.pointers.is_empty() {
-                //The root was split
-                //Write it to disk and return the pointer to it.
+                // The root was split
+                // Write it to disk and return the pointer to it.
+                ret = self.finish_root(&req, &mut root_result)
             } else {
                 ret = root_result.values.back().unwrap().pointer.clone();
+            }
+        }
+
+        return ret;
+    }
+
+    fn finish_root<'a, Ctx: Debug>(
+        &mut self,
+        req: &'a CouchfileModifyRequest<Ctx>,
+        root_result: &'a mut CouchfileModifyResult<'a, Ctx>,
+    ) -> Option<NodePointer> {
+        let ret;
+
+        let mut collector = CouchfileModifyResult::new(req);
+
+        collector.modified = true;
+        collector.node_type = NodeType::KPNode;
+
+        self.flush_mr(root_result);
+
+        loop {
+            if !root_result.pointers.is_empty() {
+                // The root result split into exactly one kp_node.
+                // Return the pointer to it.
+                ret = root_result.pointers.back().unwrap().pointer.clone();
+                break;
+            } else {
+                // The root result split into more than one kp_node.
+                // Move the pointer list to the value list and write out the new node.
+                self.mr_move_pointers(root_result, &mut collector);
+
+                self.flush_mr(&mut collector);
+
+                std::mem::swap(root_result, &mut collector);
             }
         }
 
@@ -131,19 +166,44 @@ impl TreeFile {
         let mut local_result = CouchfileModifyResult::new(req);
 
         if node_pointer.is_none() || node_buf[0] == NodeType::KVNode as u8 {
+            cursor.set_position(1);
+
             // KV Node
             local_result.node_type = NodeType::KVNode;
 
             while (cursor.position() as usize) < node_buf.len() {
-                let (key, value) = read_kv(&mut cursor).unwrap();
+                let (cmp_key, value) = read_kv(&mut cursor).unwrap();
 
-                let advance = 1;
+                let mut advance = false;
 
-                // let pointer = (&value[10..16]).read_u48::<byteorder::BigEndian>().unwrap();
+                while !advance && start < end {
+                    advance = true;
+                    if &req.actions[start].key[..] < &cmp_key[..] {
+                        //Key less than action key
+                        self.maybe_purge_kv(&req, &cmp_key, &value, &mut local_result);
+                    } else if &req.actions[start].key[..] > &cmp_key[..] {
+                        //Key greater than action key
+                        local_result.modified = true;
+                        self.mr_push_item(
+                            &req.actions[start].key[..],
+                            &req.actions[start].data.as_ref().unwrap()[..],
+                            &mut local_result,
+                        );
 
-                if &req.actions[start].key[..] < key { //Key less than action key
-                } else if &req.actions[start].key[..] > key { //Key greater than action key
-                } else { //Node key is equal to action key
+                        start += 1;
+                        advance = false;
+                    } else {
+                        //Node key is equal to action key
+                        self.mr_push_item(
+                            &req.actions[start].key[..],
+                            &req.actions[start].data.as_ref().unwrap()[..],
+                            &mut local_result,
+                        );
+                        start += 1;
+                    }
+                }
+                if start == end && !advance {
+                    self.maybe_purge_kv(req, &cmp_key, &value, &mut local_result)
                 }
             }
             while start < end {
@@ -226,9 +286,9 @@ impl TreeFile {
         self.maybe_flush(result);
     }
 
-    pub fn maybe_pure_kv<Ctx: Debug>(
+    pub fn maybe_purge_kv<Ctx: Debug>(
         &mut self,
-        req: &mut CouchfileModifyRequest<Ctx>,
+        req: &CouchfileModifyRequest<Ctx>,
         key: &[u8],
         value: &[u8],
         result: &mut CouchfileModifyResult<Ctx>,

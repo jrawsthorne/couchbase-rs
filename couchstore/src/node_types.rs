@@ -145,3 +145,16 @@ impl DocInfo {
         buf.write_all(&self.rev_meta).unwrap();
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_kv_length_roundtrip() {
+        let kv = encode_kv_length(1234, 5678);
+        let (klen, vlen) = decode_kv_length(&kv);
+        assert_eq!(klen, 1234);
+        assert_eq!(vlen, 5678);
+    }
+}
