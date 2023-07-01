@@ -292,7 +292,7 @@ impl TreeFile {
         dst: &mut CouchfileModifyResult<Ctx>,
     ) {
         let mut data = Vec::new();
-        ptr.encode(&mut data).unwrap();
+        ptr.encode_pointer(&mut data).unwrap();
 
         let raw_ptr = Node {
             data,
@@ -429,7 +429,7 @@ impl TreeFile {
 
         let mut data = Vec::new();
 
-        ptr.encode(&mut data).unwrap();
+        ptr.encode_pointer(&mut data).unwrap();
 
         let raw_ptr = Node {
             data,

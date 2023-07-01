@@ -77,7 +77,7 @@ pub struct NodePointer {
 }
 
 impl NodePointer {
-    fn decode(mut buf: impl io::Read, root_size: usize) -> Option<NodePointer> {
+    fn read_root(mut buf: impl io::Read, root_size: usize) -> Option<NodePointer> {
         if root_size == 0 {
             return None;
         }
@@ -112,7 +112,14 @@ impl NodePointer {
         }
     }
 
-    fn encode(&self, mut buf: impl io::Write) -> io::Result<()> {
+    fn encode_root(&self, mut buf: impl io::Write) -> io::Result<()> {
+        buf.write_u48::<BigEndian>(self.pointer)?;
+        buf.write_u48::<BigEndian>(self.subtree_size)?;
+        buf.write_all(&self.reduce_value)?;
+        Ok(())
+    }
+
+    fn encode_pointer(&self, mut buf: impl io::Write) -> io::Result<()> {
         buf.write_u48::<BigEndian>(self.pointer)?;
         buf.write_u48::<BigEndian>(self.subtree_size)?;
         buf.write_u16::<BigEndian>(self.reduce_value.len() as u16)?;
@@ -323,9 +330,9 @@ impl Db {
                 + (header.localrootsize as usize)
         );
 
-        let by_seq_root = NodePointer::decode(&mut cursor, header.seqrootsize as usize);
-        let by_id_root = NodePointer::decode(&mut cursor, header.idrootsize as usize);
-        let local_docs_root = NodePointer::decode(&mut cursor, header.localrootsize as usize);
+        let by_seq_root = NodePointer::read_root(&mut cursor, header.seqrootsize as usize);
+        let by_id_root = NodePointer::read_root(&mut cursor, header.idrootsize as usize);
+        let local_docs_root = NodePointer::read_root(&mut cursor, header.localrootsize as usize);
 
         self.header.update_seq = header.update_seq;
         self.header.by_id_root = by_id_root;
@@ -365,13 +372,13 @@ impl Db {
         b.write_u16::<BigEndian>(localrootsize as u16).unwrap();
         b.write_u64::<BigEndian>(self.header.timestamp).unwrap();
         if let Some(by_seq_root) = &self.header.by_seq_root {
-            by_seq_root.encode(&mut b).unwrap();
+            by_seq_root.encode_root(&mut b).unwrap();
         }
         if let Some(by_id_root) = &self.header.by_id_root {
-            by_id_root.encode(&mut b).unwrap();
+            by_id_root.encode_root(&mut b).unwrap();
         }
         if let Some(local_docs_root) = &self.header.local_docs_root {
-            local_docs_root.encode(&mut b).unwrap();
+            local_docs_root.encode_root(&mut b).unwrap();
         }
 
         let header_pos = self.file.write_header(&b);
