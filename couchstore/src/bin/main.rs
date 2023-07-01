@@ -1,5 +1,6 @@
 use couchstore::{DBOpenOptions, Db};
 use serde_json::Value;
+use std::process::exit;
 
 fn v_bucket_hash(key: &str, num_vbuckets: u32) -> u16 {
     let mut hasher = crc32fast::Hasher::new();
@@ -21,7 +22,18 @@ struct Airline {
     key: String,
 }
 
+const NUM_VBUCKETS: u32 = 1024;
+const PATH: &str = "./data/travel-sample";
+
 fn main() {
+    if std::env::args().len() < 3 {
+        println!(
+            "Usage: {} <get|set> <key>",
+            std::env::args().nth(0).unwrap()
+        );
+        exit(1);
+    }
+
     let action = std::env::args().nth(1).unwrap();
     let key = std::env::args().nth(2).unwrap();
 
@@ -38,24 +50,23 @@ fn main() {
 
     let value = serde_json::to_vec(&value).unwrap();
 
-    let num_vbuckets = 1024;
-    let vbucket = v_bucket_hash(&key, num_vbuckets);
+    let vbucket = v_bucket_hash(&key, NUM_VBUCKETS);
+
+    std::fs::create_dir_all(PATH).unwrap();
+
+    let mut db = Db::open(
+        format!("{PATH}/{vbucket}.couch.1"),
+        DBOpenOptions::default(),
+    );
 
     match action.as_str() {
         "get" => {
-            let mut db = Db::open(
-                format!("./data/travel-sample/{vbucket}.couch.1"),
-                DBOpenOptions::default(),
-            );
             let val = db.get(key).unwrap();
             let json = serde_json::from_slice::<Value>(val.as_slice()).unwrap();
             println!("{}", json);
         }
         "set" => {
-            let path = format!("./data/travel-sample/{vbucket}.couch.1");
-                let mut db = Db::open(&path, DBOpenOptions::default());
-                db.set(key, value);
-        
+            db.set(key, value);
         }
         _ => panic!("Invalid action"),
     }
