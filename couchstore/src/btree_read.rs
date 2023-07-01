@@ -54,6 +54,7 @@ impl TreeFile {
 
                             let val = self.read_compressed(pointer as usize);
                             ret = Some(val);
+                            break;
                         }
                     }
                 }

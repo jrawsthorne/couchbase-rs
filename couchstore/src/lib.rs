@@ -97,9 +97,25 @@ impl NodePointer {
         })
     }
 
+    fn read_pointer(key: &[u8], mut buf: impl io::Read) -> NodePointer {
+        let pointer = buf.read_u48::<BigEndian>().unwrap();
+        let subtree_size = buf.read_u48::<BigEndian>().unwrap();
+        let reduce_value_len = buf.read_u16::<BigEndian>().unwrap() as usize;
+        let mut reduce_value = vec![0; reduce_value_len];
+        buf.read_exact(&mut reduce_value).unwrap();
+
+        NodePointer {
+            key: Some(key.to_vec()),
+            pointer,
+            reduce_value,
+            subtree_size,
+        }
+    }
+
     fn encode(&self, mut buf: impl io::Write) -> io::Result<()> {
         buf.write_u48::<BigEndian>(self.pointer)?;
         buf.write_u48::<BigEndian>(self.subtree_size)?;
+        buf.write_u16::<BigEndian>(self.reduce_value.len() as u16)?;
         buf.write_all(&self.reduce_value)?;
         Ok(())
     }
