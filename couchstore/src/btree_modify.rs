@@ -176,29 +176,30 @@ impl TreeFile {
 
                 while !advance && start < end {
                     advance = true;
-                    if &req.actions[start].key[..] < &cmp_key[..] {
-                        //Key less than action key
-                        self.maybe_purge_kv(&req, &cmp_key, &value, &mut local_result);
-                    } else if &req.actions[start].key[..] > &cmp_key[..] {
-                        //Key greater than action key
-                        local_result.modified = true;
-                        self.mr_push_item(
-                            &req.actions[start].key[..],
-                            &req.actions[start].data.as_ref().unwrap()[..],
-                            &mut local_result,
-                        );
+                    match cmp_key.cmp(&req.actions[start].key[..]) {
+                        Ordering::Less => {
+                            self.maybe_purge_kv(&req, &cmp_key, &value, &mut local_result);
+                        }
+                        Ordering::Greater => {
+                            local_result.modified = true;
+                            self.mr_push_item(
+                                &req.actions[start].key[..],
+                                &req.actions[start].data.as_ref().unwrap()[..],
+                                &mut local_result,
+                            );
 
-                        start += 1;
-                        advance = false;
-                    } else {
-                        //Node key is equal to action key
-                        local_result.modified = true;
-                        self.mr_push_item(
-                            &req.actions[start].key[..],
-                            &req.actions[start].data.as_ref().unwrap()[..],
-                            &mut local_result,
-                        );
-                        start += 1;
+                            start += 1;
+                            advance = false;
+                        }
+                        Ordering::Equal => {
+                            local_result.modified = true;
+                            self.mr_push_item(
+                                &req.actions[start].key[..],
+                                &req.actions[start].data.as_ref().unwrap()[..],
+                                &mut local_result,
+                            );
+                            start += 1;
+                        }
                     }
                 }
                 if start == end && !advance {
@@ -402,20 +403,20 @@ impl TreeFile {
 
         let mut mr_quota = mr_quota as isize;
 
-        while let Some(value) = result.values.pop_front() {
-            if mr_quota > 0 || (item_count >= 2 && result.node_type == NodeType::KPNode) {
-                write_kv(&mut nodebuf, &value.key, &value.data);
+        while !result.values.is_empty()
+            && (mr_quota > 0 || item_count < 2 && result.node_type == NodeType::KPNode)
+        {
+            let value = result.values.pop_front().unwrap();
 
-                if let Some(pointer) = &value.pointer {
-                    subtreesize += pointer.subtree_size
-                }
+            write_kv(&mut nodebuf, &value.key, &value.data);
 
-                mr_quota -= (value.key.len() + value.data.len() + 5) as isize;
-                final_key = value.key.clone();
-                item_count += 1;
-            } else {
-                break;
+            if let Some(pointer) = &value.pointer {
+                subtreesize += pointer.subtree_size
             }
+
+            mr_quota -= (value.key.len() + value.data.len() + 5) as isize;
+            final_key = value.key.clone();
+            item_count += 1;
         }
 
         self.db_write_buf_compressed(&nodebuf, &mut diskpos, &mut disksize);
