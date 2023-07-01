@@ -257,13 +257,14 @@ impl TreeFile {
                     Ordering::Equal | Ordering::Greater => {
                         let mut range_end = start;
 
-                        while range_end < end && &req.actions[start].key[..] <= cmp_key {
+                        while range_end < end && &req.actions[range_end].key[..] <= cmp_key {
                             range_end += 1;
                         }
 
                         let mut desc = NodePointer::read_pointer(cmp_key, value);
 
                         self.modify_node(req, Some(&mut desc), start, range_end, &mut local_result);
+                        start = range_end;
                     }
                 }
             }
@@ -312,7 +313,7 @@ impl TreeFile {
         src: &mut CouchfileModifyResult<Ctx>,
         dst: &mut CouchfileModifyResult<Ctx>,
     ) {
-        while let Some(val) = src.pointers.pop_back() {
+        while let Some(val) = src.pointers.pop_front() {
             dst.node_length += val.data.len() + val.key.len() + 5;
             dst.values.push_back(val);
             self.maybe_flush(dst);
