@@ -10,7 +10,12 @@ impl TreeFile {
         self.file.flush().unwrap();
     }
 
-    pub fn raw_write(&mut self, disk_block_type: DiskBlockType, mut buf: &[u8], pos: usize) -> usize {
+    pub fn raw_write(
+        &mut self,
+        disk_block_type: DiskBlockType,
+        mut buf: &[u8],
+        pos: usize,
+    ) -> usize {
         let mut write_pos = pos;
         let mut block_remain = 0;
         // break up the write buffer into blocks adding the block prefix as needed
@@ -49,7 +54,6 @@ impl TreeFile {
         cursor.write_u8(DiskBlockType::Header.into()).unwrap();
         cursor.write_u32::<BigEndian>(size).unwrap();
         cursor.write_u32::<BigEndian>(crc32).unwrap();
-
 
         self.write_entire_buffer(&header_buf, write_pos);
 
