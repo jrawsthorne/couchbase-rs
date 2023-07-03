@@ -15,11 +15,14 @@ pub enum NodeType {
 
 impl TreeFile {
     // TODO: support multiple keys
-    pub fn btree_lookup_inner(
+    pub fn btree_lookup_inner<F>(
         &mut self,
         req: &mut CouchfileLookupRequest,
+        mut on_fetch: F,
         diskpos: usize,
-    ) -> Option<Vec<u8>> {
+    ) where
+        F: FnMut(&mut Self, &mut CouchfileLookupRequest, Option<&[u8]>),
+    {
         let node = self.read_compressed(diskpos);
 
         let mut cursor = Cursor::new(node.as_ref());
@@ -36,38 +39,36 @@ impl TreeFile {
                     if &req.key[..] <= cmp_key {
                         // In interior nodes the Value parts of these pairs are pointers to another
                         // B-tree node, where keys less than or equal to that pair's Key will be.
-                        return self.btree_lookup_inner(req, pointer as usize);
+                        return self.btree_lookup_inner(req, on_fetch, pointer as usize);
                     }
                 }
-                return None;
+                on_fetch(self, req, None);
             }
             NodeType::KVNode => {
-                let mut ret = None;
                 while (cursor.position() as usize) < node.len() {
                     // KV Node
                     let (cmp_key, value) = read_kv(&mut cursor).unwrap();
 
                     if &req.key[..] <= cmp_key {
                         if req.key == cmp_key {
-                            let pointer =
-                                (&value[10..16]).read_u48::<byteorder::BigEndian>().unwrap();
-
-                            let val = self.read_compressed(pointer as usize);
-                            ret = Some(val);
-                            break;
+                            on_fetch(self, req, Some(value));
+                            return;
                         }
                     }
                 }
-                return ret;
+                on_fetch(self, req, None);
             }
         }
     }
 
-    pub fn btree_lookup(
+    pub fn btree_lookup<F>(
         &mut self,
-        mut req: CouchfileLookupRequest,
+        req: &mut CouchfileLookupRequest,
+        on_fetch: F,
         root_pointer: usize,
-    ) -> Option<Vec<u8>> {
-        self.btree_lookup_inner(&mut req, root_pointer)
+    ) where
+        F: Sized + FnMut(&mut Self, &mut CouchfileLookupRequest, Option<&[u8]>),
+    {
+        self.btree_lookup_inner(req, on_fetch, root_pointer);
     }
 }

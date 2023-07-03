@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Cursor, Seek, SeekFrom, Write},
+    io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::Path,
 };
 mod btree;
@@ -161,6 +161,35 @@ pub struct DocInfo {
     pub physical_size: u32,
 }
 
+const BP_DELETED_FLAG: u64 = 0x800000000000;
+
+impl DocInfo {
+    fn decode_id_index_value(key: Vec<u8>, mut value: &[u8]) -> DocInfo {
+        let db_seq = value.read_u48::<BigEndian>().unwrap();
+        let data_size = value.read_u32::<BigEndian>().unwrap();
+        let bp = value.read_u48::<BigEndian>().unwrap();
+        let deleted = bp & BP_DELETED_FLAG != 0;
+        let bp = bp & !BP_DELETED_FLAG;
+        let content_meta = ContentMetaFlag::from_bits(value.read_u8().unwrap()).unwrap();
+        let rev_seq: u64 = value.read_u48::<BigEndian>().unwrap();
+
+        let rev_meta_len = value.len();
+        let mut rev_meta = vec![0; rev_meta_len];
+        value.read_exact(&mut rev_meta).unwrap();
+
+        DocInfo {
+            id: key,
+            db_seq,
+            rev_seq,
+            rev_meta,
+            deleted,
+            content_meta,
+            bp,
+            physical_size: data_size,
+        }
+    }
+}
+
 bitflags! {
     /// DataType is used to communicate how the client and server should encode and decode a value
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -292,9 +321,43 @@ impl Db {
         key_b.write_all(&[0]).unwrap(); // default collection prefix
         key_b.write_all(key.as_bytes()).unwrap();
 
-        return self
-            .file
-            .btree_lookup(CouchfileLookupRequest { key: key_b }, pos);
+        let mut req = CouchfileLookupRequest { key: key_b };
+
+        let mut ret = None;
+
+        self.file.btree_lookup(
+            &mut req,
+            |file, _, value| {
+                if let Some(value) = value {
+                    let pointer = (&value[10..16]).read_u48::<byteorder::BigEndian>().unwrap();
+
+                    ret = Some(file.read_compressed(pointer as usize));
+                }
+            },
+            pos,
+        );
+
+        return ret;
+    }
+
+    pub fn docinfo_by_id(&mut self, key: Vec<u8>) -> Option<DocInfo> {
+        let root_pointer = self.header.by_id_root.as_ref()?.pointer as usize;
+
+        let mut req = CouchfileLookupRequest { key: key.clone() };
+
+        let mut docinfo = None;
+
+        self.file.btree_lookup(
+            &mut req,
+            |_, _, value| {
+                if let Some(value) = value {
+                    docinfo = Some(DocInfo::decode_id_index_value(key.clone(), &value));
+                }
+            },
+            root_pointer,
+        );
+
+        return docinfo;
     }
 
     fn find_header(&mut self, start_pos: usize) {
