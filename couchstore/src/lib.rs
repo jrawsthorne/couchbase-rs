@@ -128,6 +128,12 @@ impl NodePointer {
     }
 }
 
+pub struct LocalDoc {
+    id: Vec<u8>,
+    json: Option<Vec<u8>>,
+    deleted: bool,
+}
+
 pub struct Doc {
     pub id: Vec<u8>,
     pub data: Vec<u8>,
@@ -358,6 +364,55 @@ impl Db {
         );
 
         return docinfo;
+    }
+
+    pub fn save_local_document(&mut self, local_doc: LocalDoc) {
+        let action_type = if local_doc.deleted {
+            CouchfileModifyActionType::Remove
+        } else {
+            CouchfileModifyActionType::Insert
+        };
+
+        let action = CouchfileModifyAction {
+            key: local_doc.id,
+            data: local_doc.json,
+            action_type,
+        };
+
+        let req = CouchfileModifyRequest {
+            actions: vec![action],
+            context: (),
+            kv_chunk_threshold: self.opts.kv_chunk_threshold,
+            kp_chunk_threshold: self.opts.kp_chunk_threshold,
+        };
+
+        let root = self.header.local_docs_root.clone();
+
+        self.file.modify_btree(req, root);
+    }
+
+    pub fn open_local_document(&mut self, id: Vec<u8>) -> Option<LocalDoc> {
+        let root = self.header.local_docs_root.clone()?;
+
+        let mut req = CouchfileLookupRequest { key: id };
+
+        let mut ret = None;
+
+        self.file.btree_lookup(
+            &mut req,
+            |_, key, value| {
+                if let Some(value) = value {
+                    ret = Some(LocalDoc {
+                        id: key.to_vec(),
+                        json: Some(value.to_vec()),
+                        deleted: false,
+                    });
+                }
+            },
+            root.pointer as usize,
+        );
+
+        return ret;
     }
 
     fn find_header(&mut self, start_pos: usize) {

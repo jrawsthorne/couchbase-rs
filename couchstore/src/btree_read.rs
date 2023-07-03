@@ -21,7 +21,7 @@ impl TreeFile {
         mut on_fetch: F,
         diskpos: usize,
     ) where
-        F: FnMut(&mut Self, &mut CouchfileLookupRequest, Option<&[u8]>),
+        F: FnMut(&mut Self, &[u8], Option<&[u8]>),
     {
         let node = self.read_compressed(diskpos);
 
@@ -42,7 +42,7 @@ impl TreeFile {
                         return self.btree_lookup_inner(req, on_fetch, pointer as usize);
                     }
                 }
-                on_fetch(self, req, None);
+                on_fetch(self, &req.key, None);
             }
             NodeType::KVNode => {
                 while (cursor.position() as usize) < node.len() {
@@ -51,12 +51,12 @@ impl TreeFile {
 
                     if &req.key[..] <= cmp_key {
                         if req.key == cmp_key {
-                            on_fetch(self, req, Some(value));
+                            on_fetch(self, &req.key, Some(value));
                             return;
                         }
                     }
                 }
-                on_fetch(self, req, None);
+                on_fetch(self, &req.key, None);
             }
         }
     }
@@ -67,7 +67,7 @@ impl TreeFile {
         on_fetch: F,
         root_pointer: usize,
     ) where
-        F: Sized + FnMut(&mut Self, &mut CouchfileLookupRequest, Option<&[u8]>),
+        F: Sized + FnMut(&mut Self, &[u8], Option<&[u8]>),
     {
         self.btree_lookup_inner(req, on_fetch, root_pointer);
     }
