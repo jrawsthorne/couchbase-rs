@@ -18,6 +18,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use constants::COUCH_BLOCK_SIZE;
 use node_types::RawFileHeaderV13;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use utils::align_to_next_block;
 
 use crate::{btree::CouchfileLookupRequest, constants::MAX_DB_HEADER_SIZE};
 
@@ -313,9 +314,6 @@ impl Db {
         };
 
         self.couchstore_save_document(Some(doc), doc_info, SaveOptions::COMPRESS_DOC_BODIES);
-
-        // TODO: separate commit, this is just for testing
-        self.write_header();
     }
 
     pub fn get(&mut self, key: impl AsRef<str>) -> Option<Vec<u8>> {
@@ -413,6 +411,55 @@ impl Db {
         );
 
         return ret;
+    }
+
+    pub fn commit(&mut self) {
+        self.precommit();
+
+        loop {
+            let _pre_flush_pos = self.file.pos;
+
+            // Flush header to kernel buffer
+            self.header.timestamp = utils::now();
+            self.write_header();
+
+            // Sync header to disk
+            self.file.file.flush().unwrap();
+
+            break;
+
+            // TODO: Handle flush failures and reset file.pos to pre_flush_pos
+        }
+    }
+
+    /// Precommit should occur before writing a header, it has two
+    /// purposes. Firstly it ensures data is written before we attempt
+    /// to write the header. This means it's impossible for the header
+    /// to be written before the data. This is accomplished through
+    /// a sync.
+    ///
+    /// The second purpose is to extend the file to be large enough
+    /// to include the subsequently written header. This is done so
+    /// the fdatasync performed by writing a header doesn't have to
+    /// do an additional (expensive) modified metadata flush on top
+    /// of the one we're already doing.
+    fn precommit(&mut self) {
+        let curpos = self.file.pos;
+
+        self.file.pos = align_to_next_block(self.file.pos);
+
+        let (header_size, ..) = self.calculate_header_size();
+
+        self.file.pos += header_size;
+
+        // Extend file size to where end of header will land before we do first sync
+        // TODO: Fix the mut 0s lol
+        self.file.db_write_buf(&[0], &mut 0, &mut 0);
+
+        self.file.file.flush().unwrap();
+
+        // Move cursor back to where it was
+        self.file.pos = curpos;
     }
 
     fn find_header(&mut self, start_pos: usize) {
