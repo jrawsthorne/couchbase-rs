@@ -31,7 +31,6 @@ pub enum DiskBlockType {
 
 #[derive(Debug)]
 pub struct Db {
-    read_only: bool,
     file: TreeFile,
     header: Header,
     opts: DBOpenOptions,
@@ -53,7 +52,7 @@ pub struct Header {
 }
 
 impl Header {
-    fn reset(&mut self) {
+    fn _reset(&mut self) {
         self.by_id_root = None;
         self.by_seq_root = None;
         self.local_docs_root = None;
@@ -256,7 +255,7 @@ bitflags! {
 pub struct TreeFile {
     pos: usize,
     file: File,
-    options: DBOpenOptions,
+    _options: DBOpenOptions,
 }
 
 impl TreeFile {
@@ -264,7 +263,7 @@ impl TreeFile {
         TreeFile {
             pos: 0,
             file,
-            options,
+            _options: options,
         }
     }
 }
@@ -285,7 +284,6 @@ impl Db {
         tree_file.pos = tree_file.file.seek(SeekFrom::End(0)).unwrap() as usize;
 
         let mut db = Db {
-            read_only: opts.read_only,
             file: tree_file,
             header: Header::default(),
             opts,
@@ -333,13 +331,13 @@ impl Db {
             &mut req,
             |_, _, value| {
                 if let Some(value) = value {
-                    docinfo = Some(DocInfo::decode_id_index_value(key.clone(), &value));
+                    docinfo = Some(DocInfo::decode_id_index_value(key.clone(), value));
                 }
             },
             root_pointer,
         );
 
-        return docinfo;
+        docinfo
     }
 
     pub fn save_local_document(&mut self, local_doc: LocalDoc) {
@@ -364,7 +362,7 @@ impl Db {
 
         let root = self.header.local_docs_root.clone();
 
-        self.file.modify_btree(req, root);
+        self.header.local_docs_root = self.file.modify_btree(req, root);
     }
 
     pub fn open_local_document(&mut self, id: Vec<u8>) -> Option<LocalDoc> {
@@ -372,13 +370,13 @@ impl Db {
 
         let mut req = CouchfileLookupRequest { key: id };
 
-        let mut ret = None;
+        let mut local_doc = None;
 
         self.file.btree_lookup(
             &mut req,
             |_, key, value| {
                 if let Some(value) = value {
-                    ret = Some(LocalDoc {
+                    local_doc = Some(LocalDoc {
                         id: key.to_vec(),
                         json: Some(value.to_vec()),
                         deleted: false,
@@ -388,26 +386,22 @@ impl Db {
             root.pointer as usize,
         );
 
-        return ret;
+        local_doc
     }
 
     pub fn commit(&mut self) {
         self.precommit();
 
-        loop {
-            let _pre_flush_pos = self.file.pos;
+        let _pre_flush_pos = self.file.pos;
 
-            // Flush header to kernel buffer
-            self.header.timestamp = utils::now();
-            self.write_header();
+        // Flush header to kernel buffer
+        self.header.timestamp = utils::now();
+        self.write_header();
 
-            // Sync header to disk
-            self.file.file.flush().unwrap();
+        // Sync header to disk
+        self.file.file.flush().unwrap();
 
-            break;
-
-            // TODO: Handle flush failures and reset file.pos to pre_flush_pos
-        }
+        // TODO: Handle flush failures, retry and reset file.pos to pre_flush_pos
     }
 
     /// Precommit should occur before writing a header, it has two
@@ -461,13 +455,11 @@ impl Db {
             options.remove(OpenOptions::DECOMPRESS_DOC_BODIES);
         }
 
-        let docbody;
-
-        if options.contains(OpenOptions::DECOMPRESS_DOC_BODIES) {
-            docbody = self.file.read_compressed(bp);
+        let docbody = if options.contains(OpenOptions::DECOMPRESS_DOC_BODIES) {
+            self.file.read_compressed(bp)
         } else {
-            docbody = self.file.read_uncompressed(bp);
-        }
+            self.file.read_uncompressed(bp)
+        };
 
         if docbody.is_empty() {
             return None;
@@ -486,11 +478,9 @@ impl Db {
 
         pos -= pos % COUCH_BLOCK_SIZE;
 
-        loop {
-            self.find_header_at_pos(pos);
-            // pos -= COUCH_BLOCK_SIZE;
-            break; // error handling
-        }
+        self.find_header_at_pos(pos);
+
+        // TODO: loop until good header found or end of file
     }
 
     fn find_header_at_pos(&mut self, pos: usize) {

@@ -1,7 +1,8 @@
 /// Definition of the valid response status numbers.
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Default)]
 pub enum Status {
     /// The operation completed successfully
+    #[default]
     Success,
 
     /// The key does not exist
@@ -21,12 +22,6 @@ pub enum Status {
 
     /// An error we don't know about. Use the error map returned from the server to decode the status
     Unknown(u16),
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Status::Success
-    }
 }
 
 impl From<Status> for u16 {

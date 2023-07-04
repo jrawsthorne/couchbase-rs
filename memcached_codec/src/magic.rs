@@ -3,9 +3,10 @@ use std::convert::TryFrom;
 use crate::error::McbpDecodeError;
 
 /// Magic defines the type of message
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Magic {
     /// Request packet from client to server
+    #[default]
     ClientRequest,
     /// The alternative request packet containing frame extras
     AltClientRequest,
@@ -17,12 +18,6 @@ pub enum Magic {
     ServerRequest,
     /// Response packet from client to server
     ServerResponse,
-}
-
-impl Default for Magic {
-    fn default() -> Self {
-        Magic::ClientRequest
-    }
 }
 
 impl Magic {

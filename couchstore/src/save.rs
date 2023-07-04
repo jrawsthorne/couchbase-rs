@@ -5,8 +5,6 @@ use crate::{
     ContentMetaFlag, Db, Doc, DocInfo, SaveOptions,
 };
 
-pub struct ModifyResult {}
-
 impl Db {
     pub(crate) fn couchstore_save_document(
         &mut self,
@@ -19,7 +17,7 @@ impl Db {
 
     fn save_documents_and_callback(
         &mut self,
-        mut docs: Option<Vec<Doc>>,
+        docs: Option<Vec<Doc>>,
         mut infos: Vec<DocInfo>,
         options: SaveOptions,
     ) {
@@ -62,6 +60,7 @@ impl Db {
         self.header.update_seq = seq;
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_doc_to_update_list(
         &mut self,
         doc: Option<&Doc>,
@@ -107,11 +106,11 @@ impl Db {
 
     fn update_indexes(
         &mut self,
-        seqs: Vec<u64>,
+        _seqs: Vec<u64>,
         ids: Vec<Vec<u8>>,
-        seq_idx: Vec<Vec<u8>>,
+        _seq_idx: Vec<Vec<u8>>,
         id_idx: Vec<Vec<u8>>,
-        num_docs: usize,
+        _num_docs: usize,
     ) {
         let mut id_keys_and_data = ids.into_iter().zip(id_idx.into_iter()).collect::<Vec<_>>();
         id_keys_and_data.sort_unstable_by(|(key_a, _), (key_b, _)| key_a.cmp(key_b));

@@ -41,10 +41,9 @@ trait Modifier: Sized {
 pub struct UpdateIdContext {
     pub seq_actions: Vec<CouchfileModifyAction>,
 }
-pub struct UpdateSeqContext {}
 
 impl Modifier for UpdateIdContext {
-    fn on_fetch(&mut self, req: CouchfileModifyRequest<Self>, key: &[u8], value: &[u8]) {
+    fn on_fetch(&mut self, _req: CouchfileModifyRequest<Self>, _key: &[u8], value: &[u8]) {
         let old_seq = value[0..6].to_vec();
 
         self.seq_actions.push(CouchfileModifyAction {
@@ -96,19 +95,19 @@ impl TreeFile {
         root_result.node_type = NodeType::KPNode;
         self.modify_node(&req, root.as_mut(), 0, num_actions, &mut root_result);
 
-        let mut ret = root;
+        let mut new_root = root;
 
         if root_result.modified {
             if root_result.values.len() > 1 || !root_result.pointers.is_empty() {
                 // The root was split
                 // Write it to disk and return the pointer to it.
-                ret = self.finish_root(&req, &mut root_result);
+                new_root = self.finish_root(&req, &mut root_result);
             } else {
-                ret = root_result.values.back().unwrap().pointer.clone();
+                new_root = root_result.values.back().unwrap().pointer.clone();
             }
         }
 
-        return ret;
+        new_root
     }
 
     fn finish_root<'a, Ctx: Debug>(
@@ -116,7 +115,7 @@ impl TreeFile {
         req: &'a CouchfileModifyRequest<Ctx>,
         root_result: &'a mut CouchfileModifyResult<'a, Ctx>,
     ) -> Option<NodePointer> {
-        let ret;
+        let new_root;
 
         let mut collector = CouchfileModifyResult::new(req);
 
@@ -129,7 +128,7 @@ impl TreeFile {
             if root_result.pointers.len() == 1 {
                 // The root result split into exactly one kp_node.
                 // Return the pointer to it.
-                ret = root_result.pointers.back().unwrap().pointer.clone();
+                new_root = root_result.pointers.back().unwrap().pointer.clone();
                 break;
             } else {
                 // The root result split into more than one kp_node.
@@ -142,7 +141,7 @@ impl TreeFile {
             }
         }
 
-        return ret;
+        new_root
     }
 
     pub fn modify_node<'a, Ctx: Debug>(
@@ -178,7 +177,7 @@ impl TreeFile {
                     advance = true;
                     match cmp_key.cmp(&req.actions[start].key[..]) {
                         Ordering::Less => {
-                            self.maybe_purge_kv(&req, &cmp_key, &value, &mut local_result);
+                            self.maybe_purge_kv(req, cmp_key, value, &mut local_result);
                         }
                         Ordering::Greater => {
                             local_result.modified = true;
@@ -203,7 +202,7 @@ impl TreeFile {
                     }
                 }
                 if start == end && !advance {
-                    self.maybe_purge_kv(req, &cmp_key, &value, &mut local_result)
+                    self.maybe_purge_kv(req, cmp_key, value, &mut local_result)
                 }
             }
             while start < end {
@@ -222,7 +221,7 @@ impl TreeFile {
                         local_result.modified = true;
                         self.mr_push_item(
                             &req.actions[start].key,
-                            &req.actions[start].data.as_ref().unwrap(),
+                            req.actions[start].data.as_ref().unwrap(),
                             &mut local_result,
                         );
                     }
@@ -337,7 +336,7 @@ impl TreeFile {
 
     pub fn maybe_purge_kv<Ctx: Debug>(
         &mut self,
-        req: &CouchfileModifyRequest<Ctx>,
+        _req: &CouchfileModifyRequest<Ctx>,
         key: &[u8],
         value: &[u8],
         result: &mut CouchfileModifyResult<Ctx>,
@@ -349,7 +348,7 @@ impl TreeFile {
 
     pub fn maybe_purge_kp<Ctx: Debug>(
         &mut self,
-        req: &CouchfileModifyRequest<Ctx>,
+        _req: &CouchfileModifyRequest<Ctx>,
         node: NodePointer,
         result: &mut CouchfileModifyResult<Ctx>,
     ) {
@@ -423,7 +422,7 @@ impl TreeFile {
         self.db_write_buf_compressed(&nodebuf, &mut diskpos, &mut disksize);
 
         let ptr = NodePointer {
-            pointer: diskpos as u64,
+            pointer: diskpos,
             subtree_size: u64::from(disksize) + subtreesize,
             key: Some(final_key.clone()),
             reduce_value: vec![],

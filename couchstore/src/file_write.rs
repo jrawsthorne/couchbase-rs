@@ -17,7 +17,7 @@ impl TreeFile {
         pos: usize,
     ) -> usize {
         let mut write_pos = pos;
-        let mut block_remain = 0;
+        let mut block_remain;
         // break up the write buffer into blocks adding the block prefix as needed
         while !buf.is_empty() {
             block_remain = COUCH_BLOCK_SIZE - (write_pos % COUCH_BLOCK_SIZE);
@@ -70,7 +70,7 @@ impl TreeFile {
     pub fn db_write_buf(&mut self, buf: &[u8], pos: &mut u64, disk_size: &mut u32) {
         let write_pos = self.pos;
         let mut end_pos = write_pos;
-        let mut written = 0;
+        let mut written;
 
         let size = buf.len() | 0x8000_0000;
         let crc32 = crc32c::crc32c(buf);
