@@ -9,15 +9,13 @@ impl TreeFile {
         let compressed_buf = self.read(pos, None);
 
         // Couchstore does not use the frame format so we need the raw decoder.
-        let decompressed_buf = snap::raw::Decoder::new()
+        snap::raw::Decoder::new()
             .decompress_vec(&compressed_buf)
-            .unwrap();
-
-        return decompressed_buf;
+            .unwrap()
     }
 
     pub fn read_uncompressed(&mut self, pos: usize) -> Vec<u8> {
-        return self.read(pos, None);
+        self.read(pos, None)
     }
 
     fn read(&mut self, mut pos: usize, max_header_size: Option<usize>) -> Vec<u8> {
@@ -44,11 +42,11 @@ impl TreeFile {
 
         assert_eq!(crc32, crc32_calc);
 
-        return buf;
+        buf
     }
 
     pub fn read_header(&mut self, pos: usize, max_header_size: usize) -> Vec<u8> {
-        return self.read(pos + 1, Some(max_header_size));
+        self.read(pos + 1, Some(max_header_size))
     }
 
     pub fn read_skipping_prefixes(&mut self, pos: &mut usize, mut buf: &mut [u8]) {

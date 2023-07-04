@@ -1,6 +1,6 @@
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Cursor, Read};
 
-use crate::{ContentMetaFlag, DiskVersion, DocInfo};
+use crate::{DiskVersion, DocInfo};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
@@ -39,7 +39,7 @@ impl RawFileHeaderV13 {
         }
     }
 
-    pub fn encode(&self, mut buf: impl io::Write) {
+    pub fn _encode(&self, mut buf: impl io::Write) {
         buf.write_u8(self.version.into()).unwrap();
         buf.write_u48::<BigEndian>(self.update_seq).unwrap();
         buf.write_u48::<BigEndian>(self.purge_seq).unwrap();
@@ -107,14 +107,6 @@ pub fn write_kv<W: io::Write>(mut buf: W, key: &[u8], value: &[u8]) {
     buf.write_all(value).unwrap();
 }
 
-struct RawNodePointer {
-    pub pointer: u64,
-    pub sub_size: u16,
-    pub reduce_value: Vec<u8>,
-}
-
-pub fn read_raw_node_pointer() {}
-
 impl DocInfo {
     pub fn encode_id_index_value<W: io::Write>(&self, mut buf: W) {
         buf.write_u48::<BigEndian>(self.db_seq).unwrap();
@@ -136,8 +128,8 @@ impl DocInfo {
     }
 
     pub fn encode_seq_index_value<W: io::Write>(&self, mut buf: W) {
-        let mut sizes = encode_kv_length(self.id.len() as u32, self.physical_size as u32);
-        buf.write_all(&mut sizes).unwrap();
+        let sizes = encode_kv_length(self.id.len() as u32, self.physical_size);
+        buf.write_all(&sizes).unwrap();
         buf.write_u48::<BigEndian>(self.bp).unwrap();
         buf.write_u8(self.content_meta.bits()).unwrap();
         buf.write_u48::<BigEndian>(self.rev_seq).unwrap();

@@ -29,7 +29,7 @@ fn main() {
     if std::env::args().len() < 3 {
         println!(
             "Usage: {} <get|set> <key>",
-            std::env::args().nth(0).unwrap()
+            std::env::args().next().unwrap()
         );
         exit(1);
     }

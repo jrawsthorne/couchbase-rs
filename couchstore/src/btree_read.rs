@@ -49,11 +49,9 @@ impl TreeFile {
                     // KV Node
                     let (cmp_key, value) = read_kv(&mut cursor).unwrap();
 
-                    if &req.key[..] <= cmp_key {
-                        if req.key == cmp_key {
-                            on_fetch(self, &req.key, Some(value));
-                            return;
-                        }
+                    if req.key == cmp_key {
+                        on_fetch(self, &req.key, Some(value));
+                        return;
                     }
                 }
                 on_fetch(self, &req.key, None);
