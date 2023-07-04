@@ -1,4 +1,4 @@
-use couchstore::{DBOpenOptions, Db};
+use couchstore::{DBOpenOptions, Db, OpenOptions};
 use serde_json::Value;
 use std::process::exit;
 
@@ -59,10 +59,15 @@ fn main() {
         DBOpenOptions::default(),
     );
 
+    let key = key.as_bytes().to_vec();
+
     match action.as_str() {
         "get" => {
-            let val = db.get(key).unwrap();
-            let json = serde_json::from_slice::<Value>(val.as_slice()).unwrap();
+            let docinfo = db.docinfo_by_id(key).unwrap();
+            let doc = db
+                .open_doc_with_docinfo(&docinfo, OpenOptions::DECOMPRESS_DOC_BODIES)
+                .unwrap();
+            let json = serde_json::from_slice::<Value>(doc.data.as_slice()).unwrap();
             println!("{}", json);
         }
         "set" => {

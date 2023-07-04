@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::Path,
 };
@@ -240,6 +240,18 @@ bitflags! {
     }
 }
 
+bitflags! {
+    /// Options flags for open_doc and open_doc_with_docinfo
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct OpenOptions: u64 {
+        /// Snappy decompress document data if the high bit of the content_meta field
+        /// of the DocInfo is set.
+        /// This is NOT the default, and if this is not set the data field of the Doc
+        /// will be read from disk as-is, regardless of the content_meta flags.
+        const DECOMPRESS_DOC_BODIES = 1;
+    }
+}
+
 #[derive(Debug)]
 pub struct TreeFile {
     pos: usize,
@@ -261,7 +273,7 @@ const ROOT_BASE_SIZE: usize = 12;
 
 impl Db {
     pub fn open(filename: impl AsRef<Path>, opts: DBOpenOptions) -> Db {
-        let file = OpenOptions::new()
+        let file = std::fs::OpenOptions::new()
             .read(true)
             .write(!opts.read_only)
             .create(opts.create)
@@ -288,22 +300,16 @@ impl Db {
         db
     }
 
-    pub fn set(&mut self, key: impl AsRef<str>, value: Vec<u8>) {
-        let key = key.as_ref();
-
-        let mut key_b = Vec::new();
-        key_b.write_all(&[0]).unwrap(); // default collection prefix
-        key_b.write_all(key.as_bytes()).unwrap();
-
+    pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
         let doc = Doc {
-            id: key_b.clone(),
+            id: key.clone(),
             data: value.clone(),
         };
 
         let physical_size = value.len() as u32;
 
         let doc_info = DocInfo {
-            id: key_b,
+            id: key,
             db_seq: 0,
             rev_seq: 0,
             rev_meta: vec![],
@@ -314,34 +320,6 @@ impl Db {
         };
 
         self.couchstore_save_document(Some(doc), doc_info, SaveOptions::COMPRESS_DOC_BODIES);
-    }
-
-    pub fn get(&mut self, key: impl AsRef<str>) -> Option<Vec<u8>> {
-        let key = key.as_ref();
-
-        let pos = self.header.by_id_root.as_ref()?.pointer as usize;
-
-        let mut key_b = Vec::new();
-        key_b.write_all(&[0]).unwrap(); // default collection prefix
-        key_b.write_all(key.as_bytes()).unwrap();
-
-        let mut req = CouchfileLookupRequest { key: key_b };
-
-        let mut ret = None;
-
-        self.file.btree_lookup(
-            &mut req,
-            |file, _, value| {
-                if let Some(value) = value {
-                    let pointer = (&value[10..16]).read_u48::<byteorder::BigEndian>().unwrap();
-
-                    ret = Some(file.read_compressed(pointer as usize));
-                }
-            },
-            pos,
-        );
-
-        return ret;
     }
 
     pub fn docinfo_by_id(&mut self, key: Vec<u8>) -> Option<DocInfo> {
@@ -460,6 +438,47 @@ impl Db {
 
         // Move cursor back to where it was
         self.file.pos = curpos;
+    }
+
+    /// Retrieve a doc from the db, using a DocInfo.
+    /// The DocInfo must have been filled in with valid values by an API call such
+    /// as docinfo_by_id().
+    pub fn open_doc_with_docinfo(
+        &mut self,
+        docinfo: &DocInfo,
+        mut options: OpenOptions,
+    ) -> Option<Doc> {
+        if docinfo.bp == 0 {
+            return None;
+        }
+
+        let bp = docinfo.bp as usize;
+
+        if !docinfo
+            .content_meta
+            .contains(ContentMetaFlag::IS_COMPRESSED)
+        {
+            options.remove(OpenOptions::DECOMPRESS_DOC_BODIES);
+        }
+
+        let docbody;
+
+        if options.contains(OpenOptions::DECOMPRESS_DOC_BODIES) {
+            docbody = self.file.read_compressed(bp);
+        } else {
+            docbody = self.file.read_uncompressed(bp);
+        }
+
+        if docbody.is_empty() {
+            return None;
+        }
+
+        let doc = Doc {
+            id: docinfo.id.clone(),
+            data: docbody,
+        };
+
+        Some(doc)
     }
 
     fn find_header(&mut self, start_pos: usize) {
