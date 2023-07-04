@@ -67,6 +67,7 @@ fn main() {
         }
         "set" => {
             db.set(key, value);
+            db.commit();
         }
         _ => panic!("Invalid action"),
     }
