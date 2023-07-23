@@ -20,6 +20,29 @@ pub enum Opcode {
     GetClusterConfig,
     GetErrorMap,
 
+    // DCP
+    DcpOpenConnection,
+    DcpAddStream,
+    DcpCloseStream,
+    DcpStreamRequest,
+    DcpGetFailoverLog,
+    DcpStreamEnd,
+    DcpSnapshotMarker,
+    DcpMutation,
+    DcpDeletion,
+    DcpExpiration,
+    DcpSetVbucketState,
+    DcpNoop,
+    DcpBufferAcknowledgement,
+    DcpControl,
+    DcpSystemEvent,
+    DcpPrepare,
+    DcpSeqnoAcknowledged,
+    DcpCommit,
+    DcpAbort,
+    DcpSeqnoAdvanced,
+    DcpOsoSnapshot,
+
     // Server
     ClusterMapChangeNotification,
 }
@@ -44,6 +67,29 @@ impl From<Opcode> for u8 {
             Opcode::SelectBucket => 0x89,
             Opcode::GetClusterConfig => 0xb5,
 
+            // DCP
+            Opcode::DcpOpenConnection => 0x50,
+            Opcode::DcpAddStream => 0x51,
+            Opcode::DcpCloseStream => 0x52,
+            Opcode::DcpStreamRequest => 0x53,
+            Opcode::DcpGetFailoverLog => 0x54,
+            Opcode::DcpStreamEnd => 0x55,
+            Opcode::DcpSnapshotMarker => 0x56,
+            Opcode::DcpMutation => 0x57,
+            Opcode::DcpDeletion => 0x58,
+            Opcode::DcpExpiration => 0x59,
+            Opcode::DcpSetVbucketState => 0x5b,
+            Opcode::DcpNoop => 0x5c,
+            Opcode::DcpBufferAcknowledgement => 0x5d,
+            Opcode::DcpControl => 0x5e,
+            Opcode::DcpSystemEvent => 0x5f,
+            Opcode::DcpPrepare => 0x60,
+            Opcode::DcpSeqnoAcknowledged => 0x61,
+            Opcode::DcpCommit => 0x62,
+            Opcode::DcpAbort => 0x63,
+            Opcode::DcpSeqnoAdvanced => 0x64,
+            Opcode::DcpOsoSnapshot => 0x65,
+
             // Server
             Opcode::ClusterMapChangeNotification => 0x01,
         }
@@ -54,30 +100,53 @@ impl Opcode {
     /// Decode the opcode from the raw u8. The magic is requried to differentiate between
     /// client and server opcodes that have the same raw value
     pub fn from_u8(value: u8, magic: Magic) -> Result<Opcode, McbpDecodeError> {
-        Ok(if magic.is_client_magic() {
-            match value {
-                0x00 => Opcode::Get,
-                0x01 => Opcode::Upsert,
-                0x02 => Opcode::Insert,
-                0x03 => Opcode::Replace,
-                0x04 => Opcode::Remove,
-                0x1f => Opcode::Hello,
-                0x20 => Opcode::SaslListMechs,
-                0x21 => Opcode::SaslAuth,
-                0x22 => Opcode::SaslStep,
-                0x89 => Opcode::SelectBucket,
-                0xba => Opcode::GetCollectionsManifest,
-                0xbb => Opcode::GetCollectionId,
-                0xbc => Opcode::GetScopeId,
-                0xb5 => Opcode::GetClusterConfig,
-                0xfe => Opcode::GetErrorMap,
-                _ => return Err(McbpDecodeError::InvalidOpcode(value)),
+        Ok(match value {
+            0x00 => Opcode::Get,
+            0x01 => {
+                if magic.is_client_magic() {
+                    Opcode::Upsert
+                } else {
+                    Opcode::ClusterMapChangeNotification
+                }
             }
-        } else {
-            match value {
-                0x01 => Opcode::ClusterMapChangeNotification,
-                _ => return Err(McbpDecodeError::InvalidOpcode(value)),
-            }
+            0x02 => Opcode::Insert,
+            0x03 => Opcode::Replace,
+            0x04 => Opcode::Remove,
+            0x1f => Opcode::Hello,
+            0x20 => Opcode::SaslListMechs,
+            0x21 => Opcode::SaslAuth,
+            0x22 => Opcode::SaslStep,
+            0x89 => Opcode::SelectBucket,
+            0xba => Opcode::GetCollectionsManifest,
+            0xbb => Opcode::GetCollectionId,
+            0xbc => Opcode::GetScopeId,
+            0xb5 => Opcode::GetClusterConfig,
+            0xfe => Opcode::GetErrorMap,
+
+            // DCP
+            0x50 => Opcode::DcpOpenConnection,
+            0x51 => Opcode::DcpAddStream,
+            0x52 => Opcode::DcpCloseStream,
+            0x53 => Opcode::DcpStreamRequest,
+            0x54 => Opcode::DcpGetFailoverLog,
+            0x55 => Opcode::DcpStreamEnd,
+            0x56 => Opcode::DcpSnapshotMarker,
+            0x57 => Opcode::DcpMutation,
+            0x58 => Opcode::DcpDeletion,
+            0x59 => Opcode::DcpExpiration,
+            0x5b => Opcode::DcpSetVbucketState,
+            0x5c => Opcode::DcpNoop,
+            0x5d => Opcode::DcpBufferAcknowledgement,
+            0x5e => Opcode::DcpControl,
+            0x5f => Opcode::DcpSystemEvent,
+            0x60 => Opcode::DcpPrepare,
+            0x61 => Opcode::DcpSeqnoAcknowledged,
+            0x62 => Opcode::DcpCommit,
+            0x63 => Opcode::DcpAbort,
+            0x64 => Opcode::DcpSeqnoAdvanced,
+            0x65 => Opcode::DcpOsoSnapshot,
+
+            _ => return Err(McbpDecodeError::InvalidOpcode(value)),
         })
     }
 

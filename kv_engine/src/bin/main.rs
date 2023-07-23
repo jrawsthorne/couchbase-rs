@@ -1,21 +1,19 @@
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use couchstore::{DBOpenOptions, Db, OpenOptions};
-use kv_engine::operations::{
-    cluster_config::{ClusterConfig, GetClusterConfigResponse, Node, VBucketServerMap},
-    get::{GetRequest, GetResponse},
-    hello::HelloResponse,
-    select_bucket::{SelectBucketRequest, SelectBucketResponse},
-    set::{SetRequest, SetResponse},
+use kv_engine::{
+    connection::Connection,
+    operations::{
+        cluster_config::{ClusterConfig, GetClusterConfigResponse, Node, VBucketServerMap},
+        get::{GetRequest, GetResponse},
+        hello::HelloResponse,
+        select_bucket::{SelectBucketRequest, SelectBucketResponse},
+        set::{SetRequest, SetResponse},
+    },
 };
 use memcached_codec::{
-    feature::Feature, Cas, DataType, Magic, McbpCodec, McbpMessage, McbpMessageBuilder, Opcode,
-    Status,
+    feature::Feature, Cas, DataType, Magic, McbpMessage, McbpMessageBuilder, Opcode, Status,
 };
-use std::{
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
-};
-use tokio_util::codec::{Decoder, Encoder};
+use std::net::TcpListener;
 
 const DATA_PATH: &str = "./data";
 
@@ -26,7 +24,8 @@ fn main() {
     for stream in listener.incoming() {
         std::thread::spawn(|| {
             let stream = stream.unwrap();
-            handle_connection(stream);
+            let connection = Connection::new(stream);
+            handle_connection(connection);
         });
     }
 }
@@ -36,46 +35,21 @@ struct State {
     bucket: Option<String>,
 }
 
-fn handle_connection(mut stream: TcpStream) {
-    let mut codec = McbpCodec::new();
-    let mut read_buf = BytesMut::new();
-    let mut write_buf = BytesMut::new();
-
+fn handle_connection(mut connection: Connection) {
     let mut state = State::default();
 
     loop {
-        let mut bytes = [0; 1024];
-        let bytes_read = stream.read(&mut bytes).unwrap();
-        if bytes_read == 0 {
-            break;
-        }
-        read_buf.extend_from_slice(&bytes[..bytes_read]);
+        let req = connection.recv();
 
-        loop {
-            match codec.decode(&mut read_buf) {
-                Ok(Some(req)) => {
-                    println!("Received message: {:?}", req);
-                    let to_send = handle_message(&mut state, &req);
-                    if let Some(mut resp) = to_send {
-                        resp.opaque = req.opaque;
-                        resp.magic = Magic::ClientResponse;
+        println!("Received message: {:?}", req);
+        let to_send = handle_message(&mut state, &req);
+        if let Some(mut resp) = to_send {
+            resp.opaque = req.opaque;
+            resp.magic = Magic::ClientResponse;
 
-                        println!("Sending message: {:?}", resp);
+            println!("Sending message: {:?}", resp);
 
-                        codec.encode(resp, &mut write_buf).unwrap();
-                        stream.write_all(&write_buf).unwrap();
-                        stream.flush().unwrap();
-                        write_buf.clear();
-                    }
-                }
-                Ok(None) => {
-                    break;
-                }
-                Err(e) => {
-                    println!("Error: {:?}", e);
-                    return;
-                }
-            }
+            connection.send(resp);
         }
     }
 }

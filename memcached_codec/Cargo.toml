@@ -10,3 +10,4 @@ bitflags = "2.3.3"
 bytes = "1.4.0"
 thiserror = "1.0.43"
 tokio-util = { version = "0.7.8", features = ["codec"] }
+num_enum = "0.6.1"
