@@ -1,6 +1,8 @@
 pub mod cluster_config;
+pub mod dcp;
 pub mod get;
 pub mod hello;
+pub mod sasl_auth;
 pub mod select_bucket;
 pub mod set;
 

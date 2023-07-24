@@ -1,4 +1,4 @@
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::warn;
 
 use memcached_codec::{
@@ -13,11 +13,9 @@ pub struct HelloRequest {
 
 impl HelloRequest {
     pub fn encode(&self) -> McbpMessage {
-        let mut key = BytesMut::with_capacity(self.user_agent.len());
+        let key = Bytes::copy_from_slice(self.user_agent.as_bytes());
+
         let mut value = BytesMut::with_capacity(self.features.len() * 2);
-
-        key.put_slice(self.user_agent.as_bytes());
-
         for &feature in &self.features {
             value.put_u16(feature.into());
         }
@@ -26,6 +24,16 @@ impl HelloRequest {
             .key(key)
             .value(value)
             .build()
+    }
+
+    pub fn default_features() -> Vec<Feature> {
+        vec![
+            Feature::TcpNodelay,
+            Feature::Json,
+            Feature::Datatype,
+            Feature::Duplex,
+            Feature::Collections,
+        ]
     }
 
     pub fn decode(resp: &McbpMessage) -> Result<HelloRequest, McbpDecodeError> {
