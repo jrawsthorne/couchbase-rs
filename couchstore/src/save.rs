@@ -112,7 +112,7 @@ impl Db {
         id_idx: Vec<Vec<u8>>,
         _num_docs: usize,
     ) {
-        let mut id_keys_and_data = ids.into_iter().zip(id_idx.into_iter()).collect::<Vec<_>>();
+        let mut id_keys_and_data = ids.into_iter().zip(id_idx).collect::<Vec<_>>();
         id_keys_and_data.sort_unstable_by(|(key_a, _), (key_b, _)| key_a.cmp(key_b));
 
         let id_actions = id_keys_and_data
