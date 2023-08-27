@@ -1,3 +1,4 @@
 [workspace]
 
 members = ["memcached_codec", "couchstore", "kv_engine"]
+resolver = "2"
