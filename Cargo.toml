@@ -1,4 +1,4 @@
 [workspace]
 
-members = ["memcached_codec", "couchstore", "kv_engine"]
+members = ["memcached_codec", "couchstore", "kv_engine", "ep_engine"]
 resolver = "2"

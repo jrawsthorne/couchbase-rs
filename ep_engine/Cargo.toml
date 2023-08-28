@@ -1,0 +1,10 @@
+[package]
+name = "ep_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.183", features = ["derive"] }
+serde_json = "1.0.105"
+couchstore = { path = "../couchstore" }
+parking_lot = "0.12.1"

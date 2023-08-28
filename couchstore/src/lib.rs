@@ -41,11 +41,11 @@ pub struct TreeFileOptions {}
 #[derive(Debug, Clone, Default)]
 pub struct Header {
     disk_version: DiskVersion,
-    update_seq: u64,
+    pub update_seq: u64,
     by_id_root: Option<NodePointer>,
     by_seq_root: Option<NodePointer>,
     local_docs_root: Option<NodePointer>,
-    purge_seq: u64,
+    pub purge_seq: u64,
     purge_ptr: u64,
     position: u64,
     timestamp: u64,
@@ -129,8 +129,8 @@ impl NodePointer {
 }
 
 pub struct LocalDoc {
-    id: Vec<u8>,
-    json: Option<Vec<u8>>,
+    pub id: Vec<u8>,
+    pub json: Option<Vec<u8>>,
     deleted: bool,
 }
 
@@ -275,7 +275,7 @@ impl Db {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(!opts.read_only)
-            .create(opts.create)
+            .create(!opts.read_only && opts.create)
             .open(filename)
             .unwrap();
 
@@ -365,7 +365,9 @@ impl Db {
         self.header.local_docs_root = self.file.modify_btree(req, root);
     }
 
-    pub fn open_local_document(&mut self, id: Vec<u8>) -> Option<LocalDoc> {
+    pub fn open_local_document(&mut self, id: impl Into<Vec<u8>>) -> Option<LocalDoc> {
+        let id = id.into();
+
         let root = self.header.local_docs_root.clone()?;
 
         let mut req = CouchfileLookupRequest { key: id };
@@ -579,6 +581,10 @@ impl Db {
 
         (total, seqrootsize, idrootsize, localrootsize)
     }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -587,7 +593,7 @@ pub struct DBOpenOptions {
     create: bool,
 
     /// Open the database in read only mode
-    read_only: bool,
+    pub read_only: bool,
 
     kv_chunk_threshold: usize,
 
