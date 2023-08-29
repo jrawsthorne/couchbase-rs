@@ -53,7 +53,7 @@ impl RawFileHeaderV13 {
 
 pub type RawKvLength = [u8; 5];
 
-fn decode_kv_length(kv: &RawKvLength) -> (u32, u32) {
+pub(crate) fn decode_kv_length(kv: &RawKvLength) -> (u32, u32) {
     // kv[0] is the first byte of the key length. Read BE so put as the first 8 bytes
     // kv[1] contains the last 4 bits of the key length and the first 4 bits of the value length
     // & 0xF0 to remove the last 4 bits of the second byte

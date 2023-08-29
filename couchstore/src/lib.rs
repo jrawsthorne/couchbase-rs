@@ -16,7 +16,7 @@ mod utils;
 use btree_modify::{CouchfileModifyAction, CouchfileModifyActionType, CouchfileModifyRequest};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use constants::COUCH_BLOCK_SIZE;
-use node_types::RawFileHeaderV13;
+use node_types::{decode_kv_length, RawFileHeaderV13};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use utils::align_to_next_block;
 
@@ -139,7 +139,7 @@ pub struct Doc {
     pub data: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocInfo {
     /// Document ID (key)
     pub id: Vec<u8>,
@@ -185,6 +185,37 @@ impl DocInfo {
 
         DocInfo {
             id: key,
+            db_seq,
+            rev_seq,
+            rev_meta,
+            deleted,
+            content_meta,
+            bp,
+            physical_size: data_size,
+        }
+    }
+
+    fn decode_by_seq_index_value(mut key: &[u8], mut value: &[u8]) -> DocInfo {
+        let mut raw = [0; 5];
+        value.read_exact(&mut raw).unwrap();
+        let (id_size, data_size) = decode_kv_length(&raw);
+
+        let bp = value.read_u48::<BigEndian>().unwrap();
+        let deleted = bp & BP_DELETED_FLAG != 0;
+        let bp = bp & !BP_DELETED_FLAG;
+        let content_meta = ContentMetaFlag::from_bits(value.read_u8().unwrap()).unwrap();
+        let rev_seq = value.read_u48::<BigEndian>().unwrap();
+        let db_seq = key.read_u48::<BigEndian>().unwrap();
+
+        let mut id = vec![0; id_size as usize];
+        value.read_exact(&mut id).unwrap();
+
+        let rev_meta_len = value.len();
+        let mut rev_meta = vec![0; rev_meta_len];
+        value.read_exact(&mut rev_meta).unwrap();
+
+        DocInfo {
+            id,
             db_seq,
             rev_seq,
             rev_meta,
@@ -320,7 +351,9 @@ impl Db {
         self.couchstore_save_document(Some(doc), doc_info, SaveOptions::COMPRESS_DOC_BODIES);
     }
 
-    pub fn docinfo_by_id(&mut self, key: Vec<u8>) -> Option<DocInfo> {
+    pub fn docinfo_by_id(&mut self, key: impl Into<Vec<u8>>) -> Option<DocInfo> {
+        let key = key.into();
+
         let root_pointer = self.header.by_id_root.as_ref()?.pointer as usize;
 
         let mut req = CouchfileLookupRequest { key: key.clone() };
@@ -332,6 +365,28 @@ impl Db {
             |_, _, value| {
                 if let Some(value) = value {
                     docinfo = Some(DocInfo::decode_id_index_value(key.clone(), value));
+                }
+            },
+            root_pointer,
+        );
+
+        docinfo
+    }
+
+    pub fn docinfo_by_sequence(&mut self, sequence: u64) -> Option<DocInfo> {
+        let root_pointer = self.header.by_seq_root.as_ref()?.pointer as usize;
+
+        let key = sequence.to_be_bytes()[2..].to_vec();
+
+        let mut req: CouchfileLookupRequest = CouchfileLookupRequest { key };
+
+        let mut docinfo = None;
+
+        self.file.btree_lookup(
+            &mut req,
+            |_, key, value| {
+                if let Some(value) = value {
+                    docinfo = Some(DocInfo::decode_by_seq_index_value(key, value));
                 }
             },
             root_pointer,
@@ -608,5 +663,24 @@ impl Default for DBOpenOptions {
             kv_chunk_threshold: 1279,
             kp_chunk_threshold: 1279,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_docinfo_by_sequence() {
+        let opts = DBOpenOptions {
+            read_only: true,
+            ..Default::default()
+        };
+        let mut db = Db::open("../test-data/travel-sample/0.couch.1", opts);
+
+        let info_by_id: DocInfo = db.docinfo_by_id("\0route_24983").unwrap();
+        let info_by_seq = db.docinfo_by_sequence(info_by_id.db_seq).unwrap();
+
+        assert_eq!(info_by_id, info_by_seq);
     }
 }
