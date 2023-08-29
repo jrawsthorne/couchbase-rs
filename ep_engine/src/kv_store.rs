@@ -247,7 +247,7 @@ mod test {
     fn test_new() {
         let config = CouchKVStoreConfig {
             max_vbuckets: 1024,
-            db_name: "test-data/travel-sample".to_string(),
+            db_name: "../test-data/travel-sample".to_string(),
             max_shards: 1,
             shard_id: 0,
         };
