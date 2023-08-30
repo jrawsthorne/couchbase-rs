@@ -1,10 +1,17 @@
+use serde::{Deserialize, Serializer};
 use std::{
     fmt::{self, Display},
     ops::Rem,
     str::FromStr,
+    sync::Arc,
 };
 
-use serde::{Deserialize, Serializer};
+#[derive(Debug)]
+pub struct VBucket {
+    pub id: Vbid,
+}
+
+pub type VBucketPtr = Arc<VBucket>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Vbid(pub u16);

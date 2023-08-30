@@ -7,11 +7,12 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Debug, Clone)]
 pub struct CouchKVStoreConfig {
-    max_vbuckets: u16,
-    db_name: String,
-    max_shards: u16,
-    shard_id: u16,
+    pub max_vbuckets: u16,
+    pub db_name: String,
+    pub max_shards: u16,
+    pub shard_id: u16,
 }
 
 impl CouchKVStoreConfig {
