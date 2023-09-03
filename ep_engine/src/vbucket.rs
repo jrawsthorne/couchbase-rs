@@ -1,3 +1,5 @@
+use crate::hash_table::HashTable;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serializer};
 use std::{
     fmt::{self, Display},
@@ -9,6 +11,7 @@ use std::{
 #[derive(Debug)]
 pub struct VBucket {
     pub id: Vbid,
+    pub hash_table: Mutex<HashTable>,
 }
 
 pub type VBucketPtr = Arc<VBucket>;
