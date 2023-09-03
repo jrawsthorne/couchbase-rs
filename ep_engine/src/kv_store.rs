@@ -115,7 +115,7 @@ impl CouchKVStore {
     }
 
     fn get_cache_slot(&self, vbid: Vbid) -> usize {
-        (vbid.0 / self.config.max_shards) as usize
+        (u16::from(vbid) / self.config.max_shards) as usize
     }
 
     fn get_vbucket_revision(&self, filenames: Vec<String>) -> HashMap<Vbid, HashSet<u64>> {
@@ -135,7 +135,7 @@ impl CouchKVStore {
                 // Either doesn't belong to this shard or is the last element
                 // (case where max vB % shards != 0) which we now need to check
                 // for
-                if vbid.0
+                if u16::from(vbid)
                     != (((self.config.max_vbuckets / self.config.max_shards)
                         * self.config.max_shards)
                         + self.config.shard_id)

@@ -1,4 +1,5 @@
 use crate::hash_table::HashTable;
+use crossbeam_utils::atomic::AtomicCell;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serializer};
 use std::{
@@ -12,15 +13,46 @@ use std::{
 pub struct VBucket {
     pub id: Vbid,
     pub hash_table: Mutex<HashTable>,
+    state: AtomicCell<State>,
+}
+
+impl VBucket {
+    pub fn state(&self) -> State {
+        self.state.load()
+    }
 }
 
 pub type VBucketPtr = Arc<VBucket>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Vbid(pub u16);
+pub struct Vbid(u16);
 
 impl Vbid {
     pub fn new(id: u16) -> Self {
+        Self(id)
+    }
+}
+
+impl From<Vbid> for usize {
+    fn from(vbid: Vbid) -> Self {
+        vbid.0 as usize
+    }
+}
+
+impl From<Vbid> for u16 {
+    fn from(vbid: Vbid) -> Self {
+        vbid.0
+    }
+}
+
+impl From<usize> for Vbid {
+    fn from(id: usize) -> Self {
+        Self(id as u16)
+    }
+}
+
+impl From<u16> for Vbid {
+    fn from(id: u16) -> Self {
         Self(id)
     }
 }
