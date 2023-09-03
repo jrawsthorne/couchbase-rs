@@ -1,5 +1,5 @@
 use crate::{
-    kv_store::CouchKVStoreConfig,
+    kv_store::{CouchKVStore, CouchKVStoreConfig},
     vbucket::{VBucketPtr, Vbid},
 };
 use parking_lot::{Mutex, MutexGuard};
@@ -7,6 +7,7 @@ use parking_lot::{Mutex, MutexGuard};
 pub struct KVShard {
     config: CouchKVStoreConfig,
     vbuckets: Vec<Mutex<Option<VBucketPtr>>>,
+    store: CouchKVStore,
 }
 
 impl KVShard {
@@ -14,7 +15,12 @@ impl KVShard {
         let num_vbuckets = (config.max_vbuckets as f64 / config.max_shards as f64).ceil() as usize;
         let mut vbuckets = Vec::with_capacity(num_vbuckets);
         vbuckets.resize_with(num_vbuckets, Default::default);
-        KVShard { config, vbuckets }
+        let store = CouchKVStore::new(config.clone());
+        KVShard {
+            config,
+            vbuckets,
+            store,
+        }
     }
 
     pub fn get_bucket(&self, id: Vbid) -> Option<VBucketPtr> {
@@ -49,5 +55,9 @@ impl KVShard {
         let idx = (id.0 / self.config.max_shards) as usize;
         let bucket = &self.vbuckets[idx];
         bucket.lock()
+    }
+
+    pub fn store(&self) -> &CouchKVStore {
+        &self.store
     }
 }
