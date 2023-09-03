@@ -1,6 +1,7 @@
 use crate::{
     kv_store::{CouchKVStore, CouchKVStoreConfig},
     vbucket::{VBucketPtr, Vbid},
+    Config,
 };
 use parking_lot::{Mutex, MutexGuard};
 
@@ -11,20 +12,26 @@ pub struct KVShard {
 }
 
 impl KVShard {
-    pub fn new(config: CouchKVStoreConfig) -> Self {
+    pub fn new(config: Config, num_shards: u16, shard_id: u16) -> Self {
+        let kv_config = CouchKVStoreConfig {
+            max_vbuckets: config.max_vbuckets,
+            max_shards: num_shards,
+            db_name: config.dbname.clone(),
+            shard_id,
+        };
         let num_vbuckets = (config.max_vbuckets as f64 / config.max_shards as f64).ceil() as usize;
         let mut vbuckets = Vec::with_capacity(num_vbuckets);
         vbuckets.resize_with(num_vbuckets, Default::default);
-        let store = CouchKVStore::new(config.clone());
+        let store = CouchKVStore::new(kv_config.clone());
         KVShard {
-            config,
+            config: kv_config,
             vbuckets,
             store,
         }
     }
 
     pub fn get_bucket(&self, id: Vbid) -> Option<VBucketPtr> {
-        if id.0 < self.config.max_vbuckets {
+        if u16::from(id) < self.config.max_vbuckets {
             let bucket = &*self.get_locked_bucket(id);
             if let Some(bucket) = bucket {
                 assert_eq!(bucket.id, id);
@@ -51,8 +58,8 @@ impl KVShard {
     }
 
     fn get_locked_bucket(&self, id: Vbid) -> MutexGuard<Option<VBucketPtr>> {
-        assert_eq!(id.0 % self.config.max_shards, self.config.shard_id);
-        let idx = (id.0 / self.config.max_shards) as usize;
+        assert_eq!(u16::from(id) % self.config.max_shards, self.config.shard_id);
+        let idx = (u16::from(id) / self.config.max_shards) as usize;
         let bucket = &self.vbuckets[idx];
         bucket.lock()
     }
