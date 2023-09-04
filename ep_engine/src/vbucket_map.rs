@@ -6,7 +6,7 @@ use crate::{
 use std::sync::atomic::{AtomicU16, Ordering};
 
 pub struct VBucketMap {
-    shards: Vec<KVShard>,
+    pub(crate) shards: Vec<KVShard>,
     size: usize,
     vb_state_count: [AtomicU16; 4],
 }

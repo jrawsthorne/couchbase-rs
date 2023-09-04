@@ -206,6 +206,14 @@ impl CouchKVStore {
     fn read_header<'a>(&self, db: &'a Db) -> &'a couchstore::Header {
         db.header()
     }
+
+    pub fn list_persisted_vbuckets(&self) -> Vec<&Option<VBucketState>> {
+        let mut res = Vec::new();
+        for vb in &self.cached_vb_states {
+            res.push(vb);
+        }
+        res
+    }
 }
 
 fn discover_db_files(dir: &str) -> Vec<String> {

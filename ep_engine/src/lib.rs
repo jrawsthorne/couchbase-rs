@@ -5,6 +5,7 @@ pub mod kv_store;
 pub mod stored_value;
 pub mod vbucket;
 pub mod vbucket_map;
+pub mod warmup;
 
 #[derive(Debug, Clone)]
 pub struct Config {
