@@ -4,7 +4,9 @@ use crate::{
     Config,
 };
 use parking_lot::{Mutex, MutexGuard};
+use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct KVShard {
     config: CouchKVStoreConfig,
     vbuckets: Vec<Mutex<Option<VBucketPtr>>>,
@@ -68,3 +70,5 @@ impl KVShard {
         &self.store
     }
 }
+
+pub type KVShardPtr = Arc<KVShard>;

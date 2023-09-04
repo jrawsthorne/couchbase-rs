@@ -1,4 +1,4 @@
-use crate::hash_table::HashTable;
+use crate::{failover_table::FailoverTable, hash_table::HashTable};
 use crossbeam_utils::atomic::AtomicCell;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serializer};
@@ -14,9 +14,19 @@ pub struct VBucket {
     pub id: Vbid,
     pub hash_table: Mutex<HashTable>,
     state: AtomicCell<State>,
+    _failover_table: FailoverTable,
 }
 
 impl VBucket {
+    pub fn new(id: Vbid, state: State, failover_table: FailoverTable) -> Self {
+        Self {
+            id,
+            hash_table: Mutex::new(Default::default()),
+            state: AtomicCell::new(state),
+            _failover_table: failover_table,
+        }
+    }
+
     pub fn state(&self) -> State {
         self.state.load()
     }

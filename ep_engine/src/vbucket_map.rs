@@ -1,12 +1,15 @@
 use crate::{
-    kv_shard::KVShard,
+    kv_shard::{KVShard, KVShardPtr},
     vbucket::{State, VBucketPtr, Vbid},
     Config,
 };
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::{
+    atomic::{AtomicU16, Ordering},
+    Arc,
+};
 
 pub struct VBucketMap {
-    shards: Vec<KVShard>,
+    pub(crate) shards: Vec<KVShardPtr>,
     size: usize,
     vb_state_count: [AtomicU16; 4],
 }
@@ -17,7 +20,11 @@ impl VBucketMap {
         let num_shards = config.max_shards;
         let mut shards = Vec::with_capacity(num_shards as usize);
         for shard_id in 0..config.max_shards {
-            shards.push(KVShard::new(config.clone(), num_shards, shard_id));
+            shards.push(KVShardPtr::new(KVShard::new(
+                config.clone(),
+                num_shards,
+                shard_id,
+            )));
         }
 
         VBucketMap {
@@ -40,7 +47,7 @@ impl VBucketMap {
         }
     }
 
-    fn get_shard_by_vb_id(&self, id: Vbid) -> &KVShard {
+    pub fn get_shard_by_vb_id(&self, id: Vbid) -> &Arc<KVShard> {
         let idx = usize::from(id) % self.shards.len();
         &self.shards[idx]
     }

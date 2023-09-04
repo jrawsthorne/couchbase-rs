@@ -9,3 +9,5 @@ serde_json = "1.0.105"
 couchstore = { path = "../couchstore" }
 parking_lot = "0.12.1"
 crossbeam-utils = "0.8.16"
+dashmap = "5.5.3"
+rand = "0.8.5"
