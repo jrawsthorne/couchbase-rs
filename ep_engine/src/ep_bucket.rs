@@ -25,6 +25,10 @@ impl EPBucket {
     pub fn get_vbucket(&self, vbid: Vbid) -> Option<VBucketPtr> {
         self.vbucket_map.get_bucket(vbid)
     }
+
+    pub fn get_vbuckets(&self) -> &VBucketMap {
+        &self.vbucket_map
+    }
 }
 
 pub type EPBucketPtr = Arc<EPBucket>;

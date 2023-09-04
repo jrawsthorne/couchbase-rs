@@ -23,6 +23,7 @@ impl CouchKVStoreConfig {
 
 type RevisionMap = RwLock<Vec<u64>>;
 
+#[derive(Debug)]
 pub struct CouchKVStore {
     config: CouchKVStoreConfig,
     db_file_rev_map: Arc<RevisionMap>,

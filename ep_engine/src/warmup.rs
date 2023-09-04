@@ -1,6 +1,7 @@
 use crate::{
     ep_bucket::EPBucketPtr,
-    vbucket::{self, VBucketPtr, VBucketState, Vbid},
+    failover_table::FailoverTable,
+    vbucket::{self, VBucket, VBucketPtr, VBucketState, Vbid},
     Config,
 };
 use dashmap::DashMap;
@@ -12,12 +13,12 @@ use std::collections::HashMap;
 
 pub struct Warmup {
     store: EPBucketPtr,
-    config: Config,
+    _config: Config,
     shard_vb_states: Vec<HashMap<Vbid, VBucketState>>,
     /// vector of vectors of VBucket IDs (one vector per shard). Each vector
     /// contains all vBucket IDs which are present for the given shard.
     shard_vb_ids: Vec<Vec<Vbid>>,
-    warmed_up_vbuckets: DashMap<Vbid, Option<VBucketPtr>>,
+    warmed_up_vbuckets: DashMap<Vbid, VBucketPtr>,
 }
 
 impl Warmup {
@@ -28,7 +29,7 @@ impl Warmup {
         let warmed_up_vbuckets = DashMap::with_capacity(config.max_vbuckets as usize);
         Self {
             store,
-            config,
+            _config: config,
             shard_vb_states,
             shard_vb_ids,
             warmed_up_vbuckets,
@@ -37,7 +38,7 @@ impl Warmup {
 
     pub fn warmup(&mut self) {
         self.initialise();
-        // self.create_vbuckets();
+        self.create_vbuckets(0);
         // self.load_collection_counts();
         // self.estimate_item_count();
         // // load_prepared_sync_writes();
@@ -129,32 +130,44 @@ impl Warmup {
     }
 
     fn create_vbuckets(&self, shard_id: usize) {
-        // let max_entries = self.store.get_max_failover_entries();
+        // TODO: Get from config
+        let max_entries = 25;
 
         for (&vbid, state) in &self.shard_vb_states[shard_id] {
-            let vb = self.store.get_vbucket(vbid);
+            let _vb: std::sync::Arc<VBucket> = self.store.get_vbucket(vbid).unwrap_or_else(|| {
+                let table = if state.failover_table.is_null() {
+                    FailoverTable::new_empty(max_entries)
+                } else {
+                    FailoverTable::new(state.failover_table.clone(), max_entries, state.high_seqno)
+                };
+                let _shard = self.store.get_vbuckets().get_shard_by_vb_id(vbid);
+                // TODO: get collection manifest
+                let vb = VBucketPtr::new(VBucket::new(vbid, state.state, table));
 
-            if vb.is_none() {}
+                self.warmed_up_vbuckets.insert(vbid, vb.clone());
+
+                vb
+            });
         }
     }
 
-    fn load_collection_counts(&self) {
+    fn _load_collection_counts(&self) {
         todo!()
     }
 
-    fn estimate_item_count(&self) {
+    fn _estimate_item_count(&self) {
         todo!()
     }
 
-    fn populate_vbucket_map(&self) {
+    fn _populate_vbucket_map(&self) {
         todo!()
     }
 
-    fn key_dump(&self) {
+    fn _key_dump(&self) {
         todo!()
     }
 
-    fn load_data(&self) {
+    fn _load_data(&self) {
         todo!()
     }
 }
