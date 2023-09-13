@@ -1,6 +1,6 @@
 use crate::{failover_table::FailoverTable, hash_table::HashTable};
 use crossbeam_utils::atomic::AtomicCell;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serializer};
 use std::{
     fmt::{self, Display},
@@ -15,6 +15,8 @@ pub struct VBucket {
     pub hash_table: Mutex<HashTable>,
     state: AtomicCell<State>,
     _failover_table: FailoverTable,
+    // Can state just be inside the mutex??
+    state_lock: Mutex<()>,
 }
 
 impl VBucket {
@@ -24,11 +26,25 @@ impl VBucket {
             hash_table: Mutex::new(Default::default()),
             state: AtomicCell::new(state),
             _failover_table: failover_table,
+            state_lock: Mutex::new(()),
         }
     }
 
     pub fn state(&self) -> State {
         self.state.load()
+    }
+
+    pub fn get_state_lock(&self) -> MutexGuard<'_, ()> {
+        self.state_lock.lock()
+    }
+
+    pub fn set_state(&self, state: State) {
+        let _guard = self.get_state_lock();
+        self.set_state_unlocked(state);
+    }
+
+    fn set_state_unlocked(&self, state: State) {
+        self.state.store(state);
     }
 }
 
