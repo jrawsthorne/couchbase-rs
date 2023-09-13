@@ -38,11 +38,15 @@ impl Warmup {
 
     pub fn warmup(&mut self) {
         self.initialise();
-        self.create_vbuckets(0);
+        for shard_id in 0..self.store.vbucket_map.get_num_shards() {
+            self.create_vbuckets(shard_id);
+        }
         // self.load_collection_counts();
         // self.estimate_item_count();
         // // load_prepared_sync_writes();
-        // self.populate_vbucket_map();
+        for shard_id in 0..self.store.vbucket_map.get_num_shards() {
+            self.populate_vbucket_map(shard_id);
+        }
         // self.key_dump();
         // // self.load_access_log();
         // self.load_data();
@@ -134,7 +138,7 @@ impl Warmup {
         let max_entries = 25;
 
         for (&vbid, state) in &self.shard_vb_states[shard_id] {
-            let _vb: std::sync::Arc<VBucket> = self.store.get_vbucket(vbid).unwrap_or_else(|| {
+            let _vb = self.store.get_vbucket(vbid).unwrap_or_else(|| {
                 let table = if state.failover_table.is_null() {
                     FailoverTable::new_empty(max_entries)
                 } else {
@@ -159,8 +163,39 @@ impl Warmup {
         todo!()
     }
 
-    fn _populate_vbucket_map(&self) {
-        todo!()
+    /// Adds all warmed up vbuckets (for the shard) to the bucket's VBMap,
+    /// once added to the VBMap the rest of the system will be able to
+    /// locate and operate on the VBucket, so this phase must only run once
+    /// each vbucket is completely initialised.
+    fn populate_vbucket_map(&self, shard_id: usize) {
+        for &vbid in &self.shard_vb_ids[shard_id] {
+            let vb = self.warmed_up_vbuckets.get(&vbid).unwrap().clone();
+            // Take the vBucket lock to stop the flusher from racing with our
+            // set vBucket state. It MUST go to disk in the first flush batch
+            // or we run the risk of not rolling back replicas that we should
+            let locked_vb = self.store.get_locked_vbucket(vbid);
+            assert!(locked_vb.is_none());
+
+            // TODO: self.checkpoint_manager.queue_set_vb_state();
+
+            {
+                // Note this lock is here for correctness - the VBucket is not
+                // accessible yet, so its state cannot be changed by other code.
+                let _state_lock = vb.get_state_lock();
+                if vb.state() == vbucket::State::Active {
+                    // TODO: Update collection map for vbucket
+                }
+            }
+
+            self.store.flush_vbucket_unlocked(&locked_vb);
+
+            self.store.vbucket_map.add_bucket(vb);
+        }
+
+        if shard_id == self.store.vbucket_map.shards.len() - 1 {
+            // TODO: start flusher
+            self.warmed_up_vbuckets.clear();
+        }
     }
 
     fn _key_dump(&self) {
@@ -178,7 +213,7 @@ mod test {
     use crate::{ep_bucket::EPBucket, vbucket};
 
     #[test]
-    fn test_populate_shard_vb_states() {
+    fn test_warmup() {
         let config = Config {
             max_vbuckets: 1024,
             max_shards: 1,
@@ -194,5 +229,6 @@ mod test {
                 .state,
             vbucket::State::Active
         );
+        assert_eq!(warmup.store.vbucket_map.get_num_alive_vbuckets(), 1024);
     }
 }
