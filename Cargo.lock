@@ -97,7 +97,10 @@ dependencies = [
 name = "ep_engine"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.4.0",
+ "byteorder",
  "couchstore",
+ "crc32fast",
  "crossbeam-utils",
  "dashmap",
  "parking_lot",

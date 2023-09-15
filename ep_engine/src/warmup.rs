@@ -1,6 +1,8 @@
 use crate::{
     ep_bucket::EPBucketPtr,
     failover_table::FailoverTable,
+    item::Item,
+    kv_store::Metadata,
     vbucket::{self, VBucket, VBucketPtr, VBucketState, Vbid},
     Config,
 };
@@ -47,7 +49,9 @@ impl Warmup {
         for shard_id in 0..self.store.vbucket_map.get_num_shards() {
             self.populate_vbucket_map(shard_id);
         }
-        // self.key_dump();
+        for shard_id in 0..self.store.vbucket_map.get_num_shards() {
+            self.key_dump(shard_id);
+        }
         // // self.load_access_log();
         // self.load_data();
     }
@@ -198,8 +202,28 @@ impl Warmup {
         }
     }
 
-    fn _key_dump(&self) {
-        todo!()
+    fn key_dump(&self, shard_id: usize) {
+        let store = self.store.get_store_by_shard(shard_id);
+        let vbucket_map = &self.store.vbucket_map;
+        let vbucket_filter = &self.shard_vb_ids[shard_id];
+        for &vbid in vbucket_filter {
+            let mut ctx = store.init_by_seqno_scan_context(vbid, 0);
+            // TODO: Do this properly (in batches) like kv_engine
+            ctx.db.changes_since(0, |doc_info| {
+                let vb = vbucket_map.get_bucket(vbid).unwrap();
+                let metadata = Metadata::decode(&doc_info.rev_meta[..]);
+                let item = Item {
+                    key: doc_info.id,
+                    value: None,
+                    cas: metadata.cas,
+                    expiry_time: metadata.expiry_time,
+                    flags: metadata.flags,
+                    by_seqno: doc_info.db_seq,
+                    rev_seqno: doc_info.rev_seq,
+                };
+                vb.insert_from_warmup(item);
+            });
+        }
     }
 
     fn _load_data(&self) {
@@ -220,7 +244,7 @@ mod test {
             dbname: "../test-data/travel-sample".to_string(),
         };
         let store = EPBucket::new(config.clone());
-        let mut warmup = Warmup::new(store, config);
+        let mut warmup = Warmup::new(store.clone(), config);
         warmup.warmup();
         assert_eq!(
             warmup.shard_vb_states[0]
@@ -230,5 +254,8 @@ mod test {
             vbucket::State::Active
         );
         assert_eq!(warmup.store.vbucket_map.get_num_alive_vbuckets(), 1024);
+
+        let val = store.get(Vec::from("landmark_25686")).unwrap();
+        assert_eq!(val.cas, 1693175504558817280);
     }
 }
