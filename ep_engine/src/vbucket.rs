@@ -1,4 +1,6 @@
-use crate::{failover_table::FailoverTable, hash_table::HashTable};
+use crate::{
+    failover_table::FailoverTable, hash_table::HashTable, item::Item, stored_value::StoredValue,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serializer};
@@ -45,6 +47,14 @@ impl VBucket {
 
     fn set_state_unlocked(&self, state: State) {
         self.state.store(state);
+    }
+
+    pub fn insert_from_warmup(&self, item: Item) {
+        self.hash_table.lock().insert_from_warmup(item);
+    }
+
+    pub fn get(&self, key: &[u8]) -> Option<StoredValue> {
+        self.hash_table.lock().map.get(key).cloned()
     }
 }
 

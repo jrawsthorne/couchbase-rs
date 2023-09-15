@@ -1,9 +1,10 @@
 use crate::vbucket::{VBucketState, Vbid};
-use couchstore::Db;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use parking_lot::RwLock;
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
+    io,
     sync::Arc,
 };
 
@@ -59,8 +60,7 @@ impl CouchKVStore {
 
     fn initialise(&mut self, map: HashMap<Vbid, HashSet<u64>>) {
         for &vbid in map.keys() {
-            let mut options = couchstore::DBOpenOptions::default();
-            options.read_only = true;
+            let options = couchstore::DBOpenOptions::default().read_only();
 
             let mut db = self.open_db(vbid, options);
 
@@ -68,7 +68,11 @@ impl CouchKVStore {
         }
     }
 
-    fn read_vb_state_and_update_cache(&mut self, db: &mut Db, vbid: Vbid) -> &VBucketState {
+    fn read_vb_state_and_update_cache(
+        &mut self,
+        db: &mut couchstore::Db,
+        vbid: Vbid,
+    ) -> &VBucketState {
         let vb_state = self.read_vb_state(db, vbid);
 
         let slot = self.get_cache_slot(vbid);
@@ -177,12 +181,12 @@ impl CouchKVStore {
         _file_rev: u64,
         options: couchstore::DBOpenOptions,
         file_name: String,
-    ) -> Db {
+    ) -> couchstore::Db {
         // TODO: args used for loggin
-        Db::open(file_name, options)
+        couchstore::Db::open(file_name, options)
     }
 
-    fn read_vb_state(&self, db: &mut Db, _vbid: Vbid) -> VBucketState {
+    fn read_vb_state(&self, db: &mut couchstore::Db, _vbid: Vbid) -> VBucketState {
         let header = self.read_header(db);
         let high_seqno = header.update_seq as i64;
         let purge_seqno = header.purge_seq;
@@ -204,7 +208,7 @@ impl CouchKVStore {
         vb_state
     }
 
-    fn read_header<'a>(&self, db: &'a Db) -> &'a couchstore::Header {
+    fn read_header<'a>(&self, db: &'a couchstore::Db) -> &'a couchstore::Header {
         db.header()
     }
 
@@ -214,6 +218,84 @@ impl CouchKVStore {
             res.push(vb);
         }
         res
+    }
+
+    pub fn init_by_seqno_scan_context(&self, vbid: Vbid, start_seqno: u64) -> BySeqnoScanContext {
+        let mut db = self.open_db(vbid, couchstore::DBOpenOptions::default().read_only());
+
+        let couchstore::Header {
+            update_seq,
+            purge_seq,
+            ..
+        } = *self.read_header(&db);
+        // TODO: get from couchstore_changes_count
+        let count = 0;
+
+        let vb_state = self.read_vb_state(&mut db, vbid);
+
+        BySeqnoScanContext {
+            vbid,
+            db,
+            start_seqno,
+            update_seqno: update_seq,
+            purge_seqno: purge_seq,
+            documnent_filter: DocumentFilter::AllItems,
+            vbucket_state: vb_state,
+            document_count: count,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BySeqnoScanContext {
+    pub vbid: Vbid,
+    pub db: couchstore::Db,
+    pub start_seqno: u64,
+    pub update_seqno: u64,
+    pub purge_seqno: u64,
+    pub documnent_filter: DocumentFilter,
+    pub vbucket_state: VBucketState,
+    pub document_count: u64,
+}
+
+pub enum ValueFilter {
+    KeysOnly,
+    ValuesCompressed,
+    ValuesDecompressed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentFilter {
+    AllItems,
+    NoDeletes,
+    AllItemsAndDroppedCollections,
+}
+
+pub enum SnapshotSource {
+    // Required for PITR
+    Historical,
+    // Latest version of all keys
+    Head,
+    // All versions from the head (used in CDC stream)
+    HeadAllVersions,
+}
+
+pub struct Metadata {
+    pub cas: u64,
+    pub expiry_time: u32,
+    pub flags: u32,
+}
+
+impl Metadata {
+    pub fn decode<R: io::Read>(mut r: R) -> Self {
+        let cas = r.read_u64::<BigEndian>().unwrap();
+        let expiry_time = r.read_u32::<BigEndian>().unwrap();
+        let flags = r.read_u32::<LittleEndian>().unwrap();
+        Metadata {
+            cas,
+            expiry_time,
+            flags,
+        }
     }
 }
 
@@ -242,7 +324,7 @@ fn get_db_file_name(db_name: &str, vbid: Vbid, rev: u64) -> String {
 
 const LOCAL_DOC_KEY_VBSTATE: &str = "_local/vbstate";
 
-fn get_local_vb_state(db: &mut Db) -> serde_json::Value {
+fn get_local_vb_state(db: &mut couchstore::Db) -> serde_json::Value {
     let doc: couchstore::LocalDoc = db.open_local_document(LOCAL_DOC_KEY_VBSTATE).unwrap();
     let json = doc.json.unwrap();
     serde_json::from_slice(&json).unwrap()

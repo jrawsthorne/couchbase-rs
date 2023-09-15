@@ -3,6 +3,7 @@ use std::{ops::Deref, sync::Arc};
 
 use crate::{
     kv_store::CouchKVStore,
+    stored_value::StoredValue,
     vbucket::{VBucketPtr, Vbid},
     vbucket_map::VBucketMap,
     Config,
@@ -44,6 +45,19 @@ impl EPBucket {
     }
 
     pub fn flush_vbucket_unlocked(&self, _vb: &LockedVbucketPtr) {}
+
+    pub fn get(&self, key: Vec<u8>) -> Option<StoredValue> {
+        let vbid = v_bucket_hash(&key, 1024);
+        // TODO: This is a hack to get around the fact that we don't have
+        // collection support yet. We need to add support for collections
+        let key_with_collection_id = {
+            let mut key_with_collection_id = Vec::from("\0");
+            key_with_collection_id.extend(key);
+            key_with_collection_id
+        };
+        let vb = self.get_vbucket(Vbid::from(vbid)).unwrap();
+        vb.get(&key_with_collection_id)
+    }
 }
 
 pub type EPBucketPtr = Arc<EPBucket>;
@@ -59,4 +73,12 @@ impl Deref for LockedVbucketPtr<'_> {
     fn deref(&self) -> &Self::Target {
         &self.vb
     }
+}
+
+pub fn v_bucket_hash(key: &[u8], num_vbuckets: u32) -> u16 {
+    let mut hasher = crc32fast::Hasher::new();
+    hasher.update(key);
+    let crc = hasher.finalize();
+    let hash = (((crc) >> 16) & 0x7fff) & (num_vbuckets - 1);
+    hash as u16
 }

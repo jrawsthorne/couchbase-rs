@@ -698,7 +698,7 @@ pub struct DBOpenOptions {
     create: bool,
 
     /// Open the database in read only mode
-    pub read_only: bool,
+    read_only: bool,
 
     kv_chunk_threshold: usize,
 
@@ -720,6 +720,13 @@ impl Default for DBOpenOptions {
             kv_chunk_threshold: 1279,
             kp_chunk_threshold: 1279,
         }
+    }
+}
+
+impl DBOpenOptions {
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
     }
 }
 
