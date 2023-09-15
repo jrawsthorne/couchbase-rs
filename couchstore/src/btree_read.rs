@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{cmp::Ordering, io::Cursor};
 
 use byteorder::ReadBytesExt;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -40,28 +40,37 @@ impl TreeFile {
                 while (cursor.position() as usize) < node.len() && current < end {
                     let (cmp_key, value) = read_kv(&mut cursor).unwrap();
 
-                    if &req.keys[current][..] <= cmp_key {
-                        let mut last_item = current;
+                    let key = &req.keys[current][..];
 
-                        loop {
-                            last_item += 1;
+                    if (req.compare)(key, cmp_key) == Ordering::Greater {
+                        continue;
+                    }
 
-                            if last_item >= end {
-                                break;
-                            }
+                    if req.fold {
+                        req.in_fold = true;
+                    }
 
-                            if &req.keys[last_item][..] > cmp_key {
-                                break;
-                            }
+                    let mut last_item = current;
+
+                    loop {
+                        last_item += 1;
+
+                        if last_item >= end {
+                            break;
                         }
 
-                        let pointer =
-                            (&value[..]).read_u48::<byteorder::BigEndian>().unwrap() as usize;
+                        if (req.compare)(&req.keys[last_item][..], cmp_key) == Ordering::Greater {
+                            break;
+                        }
+                    }
 
-                        // In interior nodes the Value parts of these pairs are pointers to another
-                        // B-tree node, where keys less than or equal to that pair's Key will be.
-                        self.btree_lookup_inner(req, on_fetch, pointer, current, last_item);
+                    let pointer = (&value[..]).read_u48::<byteorder::BigEndian>().unwrap() as usize;
 
+                    // In interior nodes the Value parts of these pairs are pointers to another
+                    // B-tree node, where keys less than or equal to that pair's Key will be.
+                    self.btree_lookup_inner(req, on_fetch, pointer, current, last_item);
+
+                    if !req.in_fold {
                         current = last_item;
                     }
                 }
@@ -83,19 +92,44 @@ impl TreeFile {
 
                     let key = &req.keys[current][..];
 
-                    if key > cmp_key {
+                    let cmp_val = (req.compare)(key, cmp_key);
+
+                    if matches!(cmp_val, Ordering::Less | Ordering::Equal)
+                        && req.fold
+                        && !req.in_fold
+                    {
+                        req.in_fold = true;
+                    }
+
+                    // in_fold (>= start), requires a compare against end
+                    if req.in_fold
+                        && current + 1 < end
+                        && (req.compare)(&req.keys[current + 1][..], cmp_key) == Ordering::Less
+                    {
+                        //We've hit a key past the end of our range.
+                        req.in_fold = false;
+                        req.fold = false;
+                        current = end;
+                        break;
+                    }
+
+                    if cmp_val == Ordering::Greater {
                         next_key = true;
                         continue;
                     }
 
-                    if key == cmp_key {
-                        on_fetch(self, key, Some(value));
-                        next_key = true;
+                    if cmp_val == Ordering::Equal || req.in_fold {
+                        on_fetch(self, cmp_key, Some(value));
                     } else {
                         on_fetch(self, key, None);
                     }
 
-                    current += 1;
+                    if !req.in_fold {
+                        current += 1;
+                        next_key = cmp_val == Ordering::Equal;
+                    } else {
+                        next_key = true;
+                    }
                 }
             }
         }
@@ -114,6 +148,7 @@ impl TreeFile {
     ) where
         F: Sized + FnMut(&mut Self, &[u8], Option<&[u8]>),
     {
+        req.in_fold = false;
         self.btree_lookup_inner(req, &mut on_fetch, root_pointer, 0, req.keys.len());
     }
 }
