@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     fs::File,
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::Path,
@@ -231,17 +232,17 @@ bitflags! {
     /// DataType is used to communicate how the client and server should encode and decode a value
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct SaveOptions: u64 {
-         /// Snappy compress document data if the high bit of the
-    /// content_meta field of the DocInfo is set. This is NOT the
-    /// default, and if this is not set the data field of the Doc will
-    /// be written to disk as-is, regardless of the content_meta flags.
+        /// Snappy compress document data if the high bit of the
+        /// content_meta field of the DocInfo is set. This is NOT the
+        /// default, and if this is not set the data field of the Doc will
+        /// be written to disk as-is, regardless of the content_meta flags.
         const COMPRESS_DOC_BODIES = 1;
 
-         /// Store the DocInfo's passed in db_seq as is.
-    ///
-    /// Couchstore will *not* assign it a new sequence number, but store the
-    /// sequence number as given. The update_seq for the DB will be set to
-    /// at least this sequence.
+        /// Store the DocInfo's passed in db_seq as is.
+        ///
+        /// Couchstore will *not* assign it a new sequence number, but store the
+        /// sequence number as given. The update_seq for the DB will be set to
+        /// at least this sequence.
         const SEQUENCE_AS_IS = 2;
     }
 }
@@ -356,9 +357,7 @@ impl Db {
 
         let root_pointer = self.header.by_id_root.as_ref()?.pointer as usize;
 
-        let mut req = CouchfileLookupRequest {
-            keys: vec![key.clone()],
-        };
+        let mut req = CouchfileLookupRequest::new(vec![key.clone()]);
 
         let mut docinfo = None;
 
@@ -387,7 +386,7 @@ impl Db {
 
         keys.sort_unstable();
 
-        let mut req = CouchfileLookupRequest { keys };
+        let mut req = CouchfileLookupRequest::new(keys);
 
         self.file.btree_lookup(
             &mut req,
@@ -405,7 +404,7 @@ impl Db {
 
         let key = sequence.to_be_bytes()[2..].to_vec();
 
-        let mut req: CouchfileLookupRequest = CouchfileLookupRequest { keys: vec![key] };
+        let mut req: CouchfileLookupRequest = CouchfileLookupRequest::new(vec![key]);
 
         let mut docinfo = None;
 
@@ -420,6 +419,30 @@ impl Db {
         );
 
         docinfo
+    }
+
+    pub fn changes_since(&mut self, sequence: u64, mut on_fetch: impl FnMut(DocInfo)) {
+        let root_pointer = match self.header.by_seq_root.as_ref() {
+            Some(root) => root.pointer as usize,
+            None => return,
+        };
+
+        let key = sequence.to_be_bytes()[2..].to_vec();
+
+        let mut req: CouchfileLookupRequest = CouchfileLookupRequest::new(vec![key])
+            .fold()
+            .with_compare(seq_no_compare);
+
+        self.file.btree_lookup(
+            &mut req,
+            |_, key, value| {
+                if let Some(value) = value {
+                    let docinfo = DocInfo::decode_by_seq_index_value(key, value);
+                    on_fetch(docinfo);
+                }
+            },
+            root_pointer,
+        );
     }
 
     pub fn save_local_document(&mut self, local_doc: LocalDoc) {
@@ -452,7 +475,7 @@ impl Db {
 
         let root = self.header.local_docs_root.clone()?;
 
-        let mut req = CouchfileLookupRequest { keys: vec![id] };
+        let mut req = CouchfileLookupRequest::new(vec![id]);
 
         let mut local_doc = None;
 
@@ -682,6 +705,13 @@ pub struct DBOpenOptions {
     kp_chunk_threshold: usize,
 }
 
+fn seq_no_compare(mut a: &[u8], mut b: &[u8]) -> Ordering {
+    let a_seq = a.read_u48::<BigEndian>().unwrap();
+    let b_seq = b.read_u48::<BigEndian>().unwrap();
+
+    a_seq.cmp(&b_seq)
+}
+
 impl Default for DBOpenOptions {
     fn default() -> Self {
         Self {
@@ -729,5 +759,20 @@ mod test {
         // we get keys back in sorted order
         assert_eq!(doc_infos[0].id, keys[1]);
         assert_eq!(doc_infos[1].id, keys[0]);
+    }
+
+    #[test]
+    fn test_changes_since() {
+        let opts = DBOpenOptions {
+            read_only: true,
+            ..Default::default()
+        };
+        let mut db = Db::open("../test-data/travel-sample/0.couch.1", opts);
+        let mut seq = 1;
+        db.changes_since(0, |doc_info| {
+            assert_eq!(doc_info.db_seq, seq);
+            seq += 1;
+        });
+        assert_eq!(seq, 98);
     }
 }
