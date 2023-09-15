@@ -1,3 +1,3 @@
 pub struct CouchfileLookupRequest {
-    pub key: Vec<u8>,
+    pub keys: Vec<Vec<u8>>,
 }

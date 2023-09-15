@@ -356,7 +356,9 @@ impl Db {
 
         let root_pointer = self.header.by_id_root.as_ref()?.pointer as usize;
 
-        let mut req = CouchfileLookupRequest { key: key.clone() };
+        let mut req = CouchfileLookupRequest {
+            keys: vec![key.clone()],
+        };
 
         let mut docinfo = None;
 
@@ -373,12 +375,37 @@ impl Db {
         docinfo
     }
 
+    pub fn docinfos_by_id(
+        &mut self,
+        mut keys: Vec<Vec<u8>>,
+        mut on_fetch: impl FnMut(&[u8], Option<DocInfo>),
+    ) {
+        let root_pointer = match self.header.by_id_root {
+            Some(ref root) => root.pointer as usize,
+            None => return,
+        };
+
+        keys.sort_unstable();
+
+        let mut req = CouchfileLookupRequest { keys };
+
+        self.file.btree_lookup(
+            &mut req,
+            |_, key, value| {
+                let docinfo =
+                    value.map(|value| DocInfo::decode_id_index_value(Vec::from(key), value));
+                on_fetch(key, docinfo);
+            },
+            root_pointer,
+        );
+    }
+
     pub fn docinfo_by_sequence(&mut self, sequence: u64) -> Option<DocInfo> {
         let root_pointer = self.header.by_seq_root.as_ref()?.pointer as usize;
 
         let key = sequence.to_be_bytes()[2..].to_vec();
 
-        let mut req: CouchfileLookupRequest = CouchfileLookupRequest { key };
+        let mut req: CouchfileLookupRequest = CouchfileLookupRequest { keys: vec![key] };
 
         let mut docinfo = None;
 
@@ -425,7 +452,7 @@ impl Db {
 
         let root = self.header.local_docs_root.clone()?;
 
-        let mut req = CouchfileLookupRequest { key: id };
+        let mut req = CouchfileLookupRequest { keys: vec![id] };
 
         let mut local_doc = None;
 
@@ -682,5 +709,25 @@ mod test {
         let info_by_seq = db.docinfo_by_sequence(info_by_id.db_seq).unwrap();
 
         assert_eq!(info_by_id, info_by_seq);
+    }
+
+    #[test]
+    fn test_get_multiple_keys() {
+        let opts = DBOpenOptions {
+            read_only: true,
+            ..Default::default()
+        };
+        let mut db = Db::open("../test-data/travel-sample/0.couch.1", opts);
+
+        let keys: Vec<Vec<u8>> = vec![Vec::from("\0route_24983"), Vec::from("\0landmark_37519")];
+
+        let mut doc_infos = vec![];
+        db.docinfos_by_id(keys.clone(), |_, doc_info| {
+            doc_infos.push(doc_info.unwrap());
+        });
+
+        // we get keys back in sorted order
+        assert_eq!(doc_infos[0].id, keys[1]);
+        assert_eq!(doc_infos[1].id, keys[0]);
     }
 }
