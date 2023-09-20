@@ -1,9 +1,7 @@
-use std::{cmp::Ordering, io::Cursor};
-
+use crate::{btree::CouchfileLookupRequest, node_types::read_kv, Db};
 use byteorder::ReadBytesExt;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-
-use crate::{btree::CouchfileLookupRequest, node_types::read_kv, TreeFile};
+use std::{cmp::Ordering, io::Cursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, TryFromPrimitive, IntoPrimitive, Default)]
 #[repr(u8)]
@@ -13,7 +11,7 @@ pub enum NodeType {
     KVNode = 1,
 }
 
-impl TreeFile {
+impl Db {
     // TODO: support multiple keys
     pub fn btree_lookup_inner<F>(
         &mut self,
@@ -29,7 +27,7 @@ impl TreeFile {
             return;
         }
 
-        let node = self.read_compressed(diskpos);
+        let node = self.file.read_compressed(diskpos);
 
         let mut cursor = Cursor::new(node.as_ref());
 

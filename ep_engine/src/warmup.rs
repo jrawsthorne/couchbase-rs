@@ -53,7 +53,9 @@ impl Warmup {
             self.key_dump(shard_id);
         }
         // // self.load_access_log();
-        // self.load_data();
+        for shard_id in 0..self.store.vbucket_map.get_num_shards() {
+            self.load_data(shard_id);
+        }
     }
 
     pub fn initialise(&mut self) {
@@ -209,7 +211,7 @@ impl Warmup {
         for &vbid in vbucket_filter {
             let mut ctx = store.init_by_seqno_scan_context(vbid, 0);
             // TODO: Do this properly (in batches) like kv_engine
-            ctx.db.changes_since(0, |doc_info| {
+            ctx.db.changes_since(0, |_, doc_info| {
                 let vb = vbucket_map.get_bucket(vbid).unwrap();
                 let metadata = Metadata::decode(&doc_info.rev_meta[..]);
                 let item = Item {
@@ -226,8 +228,37 @@ impl Warmup {
         }
     }
 
-    fn _load_data(&self) {
-        todo!()
+    fn load_data(&self, shard_id: usize) {
+        let store = self.store.get_store_by_shard(shard_id);
+        let vbucket_map = &self.store.vbucket_map;
+        let vbucket_filter = &self.shard_vb_ids[shard_id];
+        for &vbid in vbucket_filter {
+            let mut ctx = store.init_by_seqno_scan_context(vbid, 0);
+            // TODO: Do this properly (in batches) like kv_engine
+            ctx.db.changes_since(0, move |db, doc_info| {
+                let doc = if let Some(doc) = db.open_doc_with_docinfo(
+                    &doc_info,
+                    couchstore::OpenOptions::DECOMPRESS_DOC_BODIES,
+                ) {
+                    doc
+                } else {
+                    return;
+                };
+
+                let vb = vbucket_map.get_bucket(vbid).unwrap();
+                let metadata = Metadata::decode(&doc_info.rev_meta[..]);
+                let item = Item {
+                    key: doc_info.id,
+                    value: Some(doc.data),
+                    cas: metadata.cas,
+                    expiry_time: metadata.expiry_time,
+                    flags: metadata.flags,
+                    by_seqno: doc_info.db_seq,
+                    rev_seqno: doc_info.rev_seq,
+                };
+                vb.insert_from_warmup(item);
+            });
+        }
     }
 }
 
@@ -257,5 +288,7 @@ mod test {
 
         let val = store.get(Vec::from("landmark_25686")).unwrap();
         assert_eq!(val.cas, 1693175504558817280);
+        assert!(val.value.is_some());
+        assert!(val.is_resident());
     }
 }

@@ -9,6 +9,15 @@ pub struct HashTable {
 
 impl HashTable {
     pub fn insert_from_warmup(&mut self, item: Item) {
+        if let Some(v) = self.map.get_mut(&item.key) {
+            assert!(v.cas == item.cas);
+            assert!(!v.is_resident());
+
+            v.restore_value(item);
+
+            return;
+        }
+
         let value = self.add_new_stored_value(item);
 
         value.mark_not_resident();
