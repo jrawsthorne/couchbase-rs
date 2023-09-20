@@ -361,7 +361,7 @@ impl Db {
 
         let mut docinfo = None;
 
-        self.file.btree_lookup(
+        self.btree_lookup(
             &mut req,
             |_, _, value| {
                 if let Some(value) = value {
@@ -388,7 +388,7 @@ impl Db {
 
         let mut req = CouchfileLookupRequest::new(keys);
 
-        self.file.btree_lookup(
+        self.btree_lookup(
             &mut req,
             |_, key, value| {
                 let docinfo =
@@ -408,7 +408,7 @@ impl Db {
 
         let mut docinfo = None;
 
-        self.file.btree_lookup(
+        self.btree_lookup(
             &mut req,
             |_, key, value| {
                 if let Some(value) = value {
@@ -421,7 +421,7 @@ impl Db {
         docinfo
     }
 
-    pub fn changes_since(&mut self, sequence: u64, mut on_fetch: impl FnMut(DocInfo)) {
+    pub fn changes_since(&mut self, sequence: u64, mut on_fetch: impl FnMut(&mut Self, DocInfo)) {
         let root_pointer = match self.header.by_seq_root.as_ref() {
             Some(root) => root.pointer as usize,
             None => return,
@@ -433,12 +433,12 @@ impl Db {
             .fold()
             .with_compare(seq_no_compare);
 
-        self.file.btree_lookup(
+        self.btree_lookup(
             &mut req,
-            |_, key, value| {
+            |db, key, value| {
                 if let Some(value) = value {
                     let docinfo = DocInfo::decode_by_seq_index_value(key, value);
-                    on_fetch(docinfo);
+                    on_fetch(db, docinfo);
                 }
             },
             root_pointer,
@@ -479,7 +479,7 @@ impl Db {
 
         let mut local_doc = None;
 
-        self.file.btree_lookup(
+        self.btree_lookup(
             &mut req,
             |_, key, value| {
                 if let Some(value) = value {
@@ -776,7 +776,7 @@ mod test {
         };
         let mut db = Db::open("../test-data/travel-sample/0.couch.1", opts);
         let mut seq = 1;
-        db.changes_since(0, |doc_info| {
+        db.changes_since(0, |_, doc_info| {
             assert_eq!(doc_info.db_seq, seq);
             seq += 1;
         });

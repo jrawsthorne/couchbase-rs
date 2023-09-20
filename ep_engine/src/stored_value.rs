@@ -1,3 +1,4 @@
+use crate::item::Item;
 use bitflags::bitflags;
 
 /// Value that is stored in the hash table
@@ -28,5 +29,28 @@ impl StoredValue {
     pub fn mark_not_resident(&mut self) {
         self.value = None;
         self.bits.remove(StoredValueBits::IS_RESIDENT);
+    }
+
+    pub fn is_resident(&self) -> bool {
+        self.bits.contains(StoredValueBits::IS_RESIDENT)
+    }
+
+    pub fn mark_clean(&mut self) {
+        self.bits.remove(StoredValueBits::IS_DIRTY);
+    }
+
+    pub fn mark_resident(&mut self) {
+        self.bits.insert(StoredValueBits::IS_RESIDENT);
+    }
+
+    pub fn restore_value(&mut self, item: Item) {
+        self.value = item.value;
+        self.cas = item.cas;
+        self.by_seqno = item.by_seqno;
+        self.expiry_time = item.expiry_time;
+        self.flags = item.flags;
+        self.rev_seqno = item.rev_seqno;
+
+        self.mark_resident();
     }
 }
