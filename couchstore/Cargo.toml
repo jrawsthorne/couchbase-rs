@@ -13,5 +13,5 @@ crc32fast = "1.3.2"
 hex = "0.4.3"
 num_enum = "0.7.1"
 serde = { version = "1.0.190", features = ["derive"] }
-serde_json = "1.0.107"
+serde_json = "1.0.108"
 snap = "1.1.0"
