@@ -7,6 +7,7 @@ use crate::{
     Config,
 };
 use dashmap::DashMap;
+use memcached_codec::DataType;
 use rand::{
     distributions::{Bernoulli, Distribution},
     SeedableRng,
@@ -222,6 +223,7 @@ impl Warmup {
                     flags: metadata.flags,
                     by_seqno: doc_info.db_seq,
                     rev_seqno: doc_info.rev_seq,
+                    data_type: metadata.data_type,
                 };
                 vb.insert_from_warmup(item);
             });
@@ -247,6 +249,16 @@ impl Warmup {
 
                 let vb = vbucket_map.get_bucket(vbid).unwrap();
                 let metadata = Metadata::decode(&doc_info.rev_meta[..]);
+
+                let mut data_type = metadata.data_type;
+
+                // TODO: Get from bucket compression
+                let fetch_compressed = true;
+
+                if fetch_compressed {
+                    data_type.insert(DataType::SNAPPY)
+                }
+
                 let item = Item {
                     key: doc_info.id,
                     value: Some(doc.data),
@@ -255,6 +267,7 @@ impl Warmup {
                     flags: metadata.flags,
                     by_seqno: doc_info.db_seq,
                     rev_seqno: doc_info.rev_seq,
+                    data_type,
                 };
                 vb.insert_from_warmup(item);
             });
@@ -264,6 +277,8 @@ impl Warmup {
 
 #[cfg(test)]
 mod test {
+    use memcached_codec::DataType;
+
     use super::*;
     use crate::{ep_bucket::EPBucket, vbucket};
 
@@ -287,6 +302,7 @@ mod test {
         assert_eq!(warmup.store.vbucket_map.get_num_alive_vbuckets(), 1024);
 
         let val = store.get(Vec::from("landmark_25686")).unwrap();
+        assert_eq!(val.data_type, DataType::SNAPPY | DataType::JSON);
         assert_eq!(val.cas, 1693175504558817280);
         assert!(val.value.is_some());
         assert!(val.is_resident());
