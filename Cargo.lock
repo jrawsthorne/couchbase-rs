@@ -142,6 +142,7 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "dashmap",
+ "memcached_codec",
  "parking_lot",
  "rand",
  "serde",

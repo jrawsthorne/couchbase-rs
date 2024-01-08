@@ -1,5 +1,6 @@
 use crate::vbucket::{VBucketState, Vbid};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use memcached_codec::DataType;
 use parking_lot::RwLock;
 use std::{
     cmp::Ordering,
@@ -284,6 +285,8 @@ pub struct Metadata {
     pub cas: u64,
     pub expiry_time: u32,
     pub flags: u32,
+    pub flex_code: u8,
+    pub data_type: DataType,
 }
 
 impl Metadata {
@@ -291,10 +294,14 @@ impl Metadata {
         let cas = r.read_u64::<BigEndian>().unwrap();
         let expiry_time = r.read_u32::<BigEndian>().unwrap();
         let flags = r.read_u32::<LittleEndian>().unwrap();
+        let flex_code = r.read_u8().unwrap();
+        let data_type = DataType::try_from(r.read_u8().unwrap()).unwrap();
         Metadata {
             cas,
             expiry_time,
             flags,
+            flex_code,
+            data_type,
         }
     }
 }

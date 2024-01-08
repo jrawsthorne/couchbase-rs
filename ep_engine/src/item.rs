@@ -1,3 +1,5 @@
+use memcached_codec::DataType;
+
 pub struct Item {
     pub key: Vec<u8>,
     pub value: Option<Vec<u8>>,
@@ -6,4 +8,5 @@ pub struct Item {
     pub flags: u32,
     pub by_seqno: u64,
     pub rev_seqno: u64,
+    pub data_type: DataType,
 }

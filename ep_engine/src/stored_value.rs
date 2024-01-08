@@ -1,5 +1,6 @@
 use crate::item::Item;
 use bitflags::bitflags;
+use memcached_codec::DataType;
 
 /// Value that is stored in the hash table
 #[derive(Debug, Clone)]
@@ -13,6 +14,7 @@ pub struct StoredValue {
     pub flags: u32,
     pub rev_seqno: u64,
     pub(crate) bits: StoredValueBits,
+    pub data_type: DataType,
 }
 
 bitflags! {
@@ -50,6 +52,7 @@ impl StoredValue {
         self.expiry_time = item.expiry_time;
         self.flags = item.flags;
         self.rev_seqno = item.rev_seqno;
+        self.data_type = item.data_type;
 
         self.mark_resident();
     }

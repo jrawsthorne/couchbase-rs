@@ -32,6 +32,7 @@ impl HashTable {
             flags: item.flags,
             rev_seqno: item.rev_seqno,
             bits: Default::default(),
+            data_type: item.data_type,
         };
         self.map.entry(item.key).or_insert(value)
     }
