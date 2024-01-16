@@ -1,3 +1,4 @@
+use anyhow::Result;
 use bytes::Bytes;
 use couchstore::{DBOpenOptions, Db, OpenOptions};
 use kv_engine::{
@@ -13,21 +14,64 @@ use kv_engine::{
 use memcached_codec::{
     feature::Feature, Cas, DataType, Magic, McbpMessage, McbpMessageBuilder, Opcode, Status,
 };
-use std::net::TcpListener;
+use std::{fs::File, net::TcpListener, thread, time::Duration};
+use tracing::{error, info, level_filters::LevelFilter};
+use tracing_subscriber::{prelude::*, Registry};
 
 const DATA_PATH: &str = "./data";
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:11210").unwrap();
-    println!("Listening on port 11210");
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() < 3 {
+        // TODO: Actually parse args rather than assume third arg is config
+        println!("Usage: {} -C <config>", args[0]);
+        std::process::exit(1);
+    }
+
+    let config: kv_engine::Config =
+        serde_json::from_str(&std::fs::read_to_string(&args[2]).unwrap())
+            .expect("Failed to parse config");
+
+    setup_logger(&config);
+
+    let mut jhs = Vec::new();
+
+    for interface in config.interfaces {
+        if interface.host != "*" {
+            continue;
+        }
+        let jh = std::thread::spawn(move || start_listener(interface.port));
+        jhs.push(jh);
+    }
+
+    for jh in jhs {
+        jh.join().unwrap();
+    }
+}
+
+fn start_listener(port: u16) {
+    let listener = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+    info!("Listening on port {port}");
 
     for stream in listener.incoming() {
         std::thread::spawn(|| {
             let stream = stream.unwrap();
             let connection = Connection::new(stream);
-            handle_connection(connection);
+            if let Err(err) = handle_connection(connection) {
+                error!("Error: {:?}", err);
+                thread::sleep(Duration::from_secs(5));
+            }
         });
     }
+}
+
+fn setup_logger(config: &kv_engine::Config) {
+    let logger_file = File::create(config.logger.filename.clone()).unwrap();
+    let layer = tracing_subscriber::fmt::layer()
+        .with_writer(logger_file)
+        .with_filter(LevelFilter::TRACE);
+    let subscriber = Registry::default().with(layer);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
 #[derive(Default)]
@@ -35,19 +79,19 @@ struct State {
     bucket: Option<String>,
 }
 
-fn handle_connection(mut connection: Connection) {
+fn handle_connection(mut connection: Connection) -> Result<()> {
     let mut state = State::default();
 
     loop {
-        let req = connection.recv();
+        let req = connection.recv()?.unwrap();
 
-        println!("Received message: {:?}", req);
+        info!("Received message: {:?}", req);
         let to_send = handle_message(&mut state, &req);
         if let Some(mut resp) = to_send {
             resp.opaque = req.opaque;
             resp.magic = Magic::ClientResponse;
 
-            println!("Sending message: {:?}", resp);
+            info!("Sending message: {:?}", resp);
 
             connection.send(resp);
         }
@@ -152,8 +196,12 @@ fn handle_message(state: &mut State, message: &McbpMessage) -> Option<McbpMessag
             Some(resp)
         }
         _ => {
-            println!("Unknown opcode: {:?}", message.opcode);
-            None
+            info!("Unknown opcode: {:?}", message.opcode);
+            let resp = McbpMessageBuilder::new(message.opcode)
+                .status(Status::Success)
+                .build();
+            std::thread::sleep(Duration::from_secs(5));
+            Some(resp)
         }
     }
 }

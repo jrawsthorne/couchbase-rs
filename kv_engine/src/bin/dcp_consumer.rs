@@ -42,6 +42,6 @@ fn main() {
         .encode(),
     );
     loop {
-        client.recv();
+        client.recv().unwrap();
     }
 }

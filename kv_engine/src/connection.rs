@@ -40,19 +40,19 @@ impl Connection {
         self.write_buffer.clear();
     }
 
-    pub fn recv(&mut self) -> McbpMessage {
+    pub fn recv(&mut self) -> Result<Option<McbpMessage>, memcached_codec::McbpDecodeError> {
         loop {
             match self.mcbp_codec.decode(&mut self.read_buffer) {
                 Ok(Some(message)) => {
                     info!("Received message: {:?}", message);
-                    return message;
+                    return Ok(Some(message));
                 }
                 Ok(None) => {
                     let mut buf = [0; 1024];
                     let n = self.stream.read(&mut buf).unwrap();
                     self.read_buffer.extend_from_slice(&buf[..n]);
                 }
-                Err(e) => panic!("Error: {:?}", e),
+                e => return e,
             }
         }
     }
@@ -63,14 +63,14 @@ impl Connection {
             user_agent: "couchbase-rs".to_string(),
         };
         self.send(req.encode());
-        let resp = self.recv();
+        let resp = self.recv().unwrap().unwrap();
         HelloResponse::decode(&resp).unwrap()
     }
 
     pub fn auth(&mut self, username: String, password: String) -> SaslAuthResponse {
         let req = SaslAuthRequest::Plain { username, password };
         self.send(req.encode());
-        let resp = self.recv();
+        let resp = self.recv().unwrap().unwrap();
         SaslAuthResponse::decode(&resp).unwrap()
     }
 
