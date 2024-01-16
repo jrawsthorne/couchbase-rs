@@ -8,7 +8,7 @@ serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 couchstore = { path = "../couchstore" }
 parking_lot = "0.12.1"
-crossbeam-utils = "0.8.18"
+crossbeam-utils = "0.8.19"
 dashmap = "5.5.3"
 rand = "0.8.5"
 byteorder = "1.5.0"
