@@ -20,6 +20,12 @@ pub enum Opcode {
     GetClusterConfig,
     GetErrorMap,
 
+    Stat,
+
+    // Audit
+    AuditPut,
+    AuditConfigReload,
+
     // DCP
     DcpOpenConnection,
     DcpAddStream,
@@ -42,6 +48,10 @@ pub enum Opcode {
     DcpAbort,
     DcpSeqnoAdvanced,
     DcpOsoSnapshot,
+
+    SetClusterConfig,
+    RbacRefresh,
+    IsaslRefresh,
 
     // Server
     ClusterMapChangeNotification,
@@ -67,6 +77,12 @@ impl From<Opcode> for u8 {
             Opcode::SelectBucket => 0x89,
             Opcode::GetClusterConfig => 0xb5,
 
+            Opcode::Stat => 0x10,
+
+            // Audit
+            Opcode::AuditPut => 0x27,
+            Opcode::AuditConfigReload => 0x28,
+
             // DCP
             Opcode::DcpOpenConnection => 0x50,
             Opcode::DcpAddStream => 0x51,
@@ -89,6 +105,10 @@ impl From<Opcode> for u8 {
             Opcode::DcpAbort => 0x63,
             Opcode::DcpSeqnoAdvanced => 0x64,
             Opcode::DcpOsoSnapshot => 0x65,
+
+            Opcode::SetClusterConfig => 0xb4,
+            Opcode::RbacRefresh => 0xf7,
+            Opcode::IsaslRefresh => 0xf1,
 
             // Server
             Opcode::ClusterMapChangeNotification => 0x01,
@@ -123,6 +143,11 @@ impl Opcode {
             0xb5 => Opcode::GetClusterConfig,
             0xfe => Opcode::GetErrorMap,
 
+            0x10 => Opcode::Stat,
+
+            0x27 => Opcode::AuditPut,
+            0x28 => Opcode::AuditConfigReload,
+
             // DCP
             0x50 => Opcode::DcpOpenConnection,
             0x51 => Opcode::DcpAddStream,
@@ -145,6 +170,10 @@ impl Opcode {
             0x63 => Opcode::DcpAbort,
             0x64 => Opcode::DcpSeqnoAdvanced,
             0x65 => Opcode::DcpOsoSnapshot,
+
+            0xb4 => Opcode::SetClusterConfig,
+            0xf7 => Opcode::RbacRefresh,
+            0xf1 => Opcode::IsaslRefresh,
 
             _ => return Err(McbpDecodeError::InvalidOpcode(value)),
         })
