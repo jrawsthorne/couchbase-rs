@@ -12,6 +12,6 @@ crossbeam-utils = "0.8.19"
 dashmap = "5.5.3"
 rand = "0.8.5"
 byteorder = "1.5.0"
-bitflags = "2.4.2"
+bitflags = "2.5.0"
 crc32fast = "1.4.0"
 memcached_codec = { path = "../memcached_codec" }
